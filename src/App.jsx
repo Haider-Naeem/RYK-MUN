@@ -24,7 +24,7 @@ import PaymentApproval from './components/Admin/PaymentApproval';
 import Financials from './components/Admin/Financials';
 import AdminManagement from './components/Admin/AdminManagement';
 
-import './index.css';
+import './Index.css';
 
 /* ── Post-login smart redirect based on role ── */
 function AppRedirect() {
