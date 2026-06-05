@@ -1,0 +1,10 @@
+name = "munryk-uploads"
+main = "src/index.js"
+compatibility_date = "2024-01-01"
+
+[[r2_buckets]]
+binding = "BUCKET"
+bucket_name = "munryk-storage"
+
+[vars]
+PUBLIC_URL = "https://pub-c1e41ff2b1044a83bcdb44fbe5ecb715.r2.dev"

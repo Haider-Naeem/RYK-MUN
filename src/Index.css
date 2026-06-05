@@ -1,0 +1,96 @@
+/* Google Fonts — must come before @import "tailwindcss" */
+@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700;900&family=Cormorant+Garamond:ital,wght@0,400;0,600;1,400&family=Montserrat:wght@400;500;600;700&display=swap');
+
+@import "tailwindcss";
+
+@theme {
+  --color-maroon-deep: #4A0A12;
+  --color-maroon: #6B0F1A;
+  --color-maroon-mid: #8B1520;
+  --color-maroon-light: #A01C2A;
+  --color-gold: #C9A84C;
+  --color-gold-bright: #FFD700;
+  --color-gold-light: #E8C97A;
+  --color-gold-pale: #F5E6C0;
+  --color-gold-dark: #9A7B28;
+  --color-cream: #FAF3E0;
+  --color-dark: #1A0508;
+  --color-muted: #8B7355;
+  --color-gray-light: #D4C5A9;
+  --color-success: #2D7A4F;
+  --color-danger: #C0392B;
+  --color-warning: #E67E22;
+
+  --font-display: 'Cinzel', serif;
+  --font-body: 'Cormorant Garamond', serif;
+  --font-ui: 'Montserrat', sans-serif;
+
+  --sidebar-w: 272px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  font-family: var(--font-ui);
+  background-color: var(--color-maroon-deep);
+  color: var(--color-gold-pale);
+  min-height: 100vh;
+  background-image:
+    radial-gradient(ellipse at 20% 50%, rgba(139,21,32,0.4) 0%, transparent 50%),
+    radial-gradient(ellipse at 80% 20%, rgba(106,15,26,0.6) 0%, transparent 50%),
+    url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23C9A84C' fill-opacity='0.03'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: #4A0A12; }
+::-webkit-scrollbar-thumb { background: #9A7B28; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #C9A84C; }
+
+/* Animations */
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes slowRotate { to { transform: rotate(360deg); } }
+@keyframes bounce {
+  0%, 100% { transform: translateY(0) rotate(45deg); }
+  50%       { transform: translateY(8px) rotate(45deg); }
+}
+
+.animate-fade-in  { animation: fadeIn 0.4s ease; }
+.animate-slow-rotate { animation: slowRotate 40s linear infinite; }
+.animate-bounce-arrow { animation: bounce 1.5s ease-in-out infinite; }
+.animate-spin-gold { animation: spin 0.8s linear infinite; }
+
+/* Gold gradient text */
+.text-gold-gradient {
+  background: linear-gradient(90deg, #C9A84C, #FFD700, #C9A84C);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Gold divider */
+.gold-divider {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, #C9A84C, transparent);
+  opacity: 0.5;
+  margin: 24px 0;
+}
+
+/* Ornament text */
+.ornament {
+  text-align: center;
+  color: #9A7B28;
+  letter-spacing: 0.5em;
+  font-size: 0.8rem;
+  margin: 8px 0;
+}
+
+/* Sidebar width utility */
+.ml-sidebar { margin-left: var(--sidebar-w); }
+.w-sidebar  { width: var(--sidebar-w); }
