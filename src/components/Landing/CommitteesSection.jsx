@@ -1,10 +1,15 @@
-import { forwardRef, useState } from "react";
+import { forwardRef, useState, useRef } from "react";
 
 const CommitteesSection = forwardRef(({ displayCommittees }, ref) => {
   const [expandedId, setExpandedId] = useState(null);
+  const cardRefs = useRef({});
 
   function handleExpand(id) {
     setExpandedId(prev => (prev === id ? null : id));
+    // Scroll to card after state update
+    setTimeout(() => {
+      cardRefs.current[id]?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 50);
   }
 
   return (
@@ -31,7 +36,6 @@ const CommitteesSection = forwardRef(({ displayCommittees }, ref) => {
           </p>
         </div>
 
-        {/* Collapse-all bar — only visible when something is expanded */}
         {expandedId && (
           <div className="flex justify-end mb-4">
             <button
@@ -55,6 +59,7 @@ const CommitteesSection = forwardRef(({ displayCommittees }, ref) => {
             return (
               <div
                 key={c.id || i}
+                ref={el => (cardRefs.current[c.id] = el)}
                 onClick={() => !isExpanded && handleExpand(c.id)}
                 className={[
                   'rounded-xl p-5 sm:p-6 backdrop-blur-md border flex flex-col transition-all duration-250',
@@ -63,8 +68,7 @@ const CommitteesSection = forwardRef(({ displayCommittees }, ref) => {
                 ].join(' ')}
                 style={{
                   background: 'rgba(59,10,20,0.58)',
-                  borderColor: 'rgba(183,145,67,0.18)',
-                  // span the full grid row when expanded
+                  borderColor: isExpanded ? 'rgba(183,145,67,0.45)' : 'rgba(183,145,67,0.18)',
                   ...(isExpanded ? { gridColumn: '1 / -1' } : {}),
                 }}
               >
@@ -73,52 +77,66 @@ const CommitteesSection = forwardRef(({ displayCommittees }, ref) => {
                   className="flex items-center gap-3 pb-3 mb-3"
                   style={{ borderBottom: '2px solid #B79143' }}
                 >
-                  {/* Logo */}
                   {c.logoUrl ? (
                     <img
                       src={c.logoUrl}
                       alt={`${c.name} logo`}
-                      className="w-9 h-9 rounded-lg object-contain shrink-0 border"
+                      className="rounded-xl object-contain shrink-0 border"
                       style={{
+                        width: isExpanded ? '56px' : '44px',
+                        height: isExpanded ? '56px' : '44px',
                         background: 'rgba(183,145,67,0.1)',
                         borderColor: 'rgba(183,145,67,0.3)',
+                        transition: 'width 0.25s, height 0.25s',
                       }}
                     />
                   ) : (
                     <div
-                      className="w-9 h-9 rounded-lg flex items-center justify-center text-xs font-bold shrink-0 border"
+                      className="rounded-xl flex items-center justify-center text-xs font-bold shrink-0 border"
                       style={{
+                        width: isExpanded ? '56px' : '44px',
+                        height: isExpanded ? '56px' : '44px',
                         color: '#B79143',
                         background: 'rgba(183,145,67,0.1)',
                         borderColor: 'rgba(183,145,67,0.3)',
+                        transition: 'width 0.25s, height 0.25s',
                       }}
                     >
                       {(c.abbr || c.name)?.slice(0, 2)?.toUpperCase()}
                     </div>
                   )}
 
-                  <span className="text-2xl font-extrabold tracking-wider" style={{ color: '#B79143' }}>
-                    {c.abbr || c.name?.slice(0, 4)?.toUpperCase() || 'CM'}
-                  </span>
+                  <div className="flex flex-col gap-0.5 min-w-0">
+                    <span className="text-2xl font-extrabold tracking-wider" style={{ color: '#B79143' }}>
+                      {c.abbr || c.name?.slice(0, 4)?.toUpperCase() || 'CM'}
+                    </span>
+                    {isExpanded && (
+                      <span className="text-xs font-semibold leading-snug" style={{ color: '#F8F3EA' }}>
+                        {c.name}
+                      </span>
+                    )}
+                  </div>
                 </div>
 
-                {/* Name */}
-                <div className="text-sm font-semibold mb-2 leading-snug" style={{ color: '#F8F3EA' }}>
-                  {c.name}
-                </div>
+                {/* Name — only when collapsed */}
+                {!isExpanded && (
+                  <div className="text-sm font-semibold mb-2 leading-snug" style={{ color: '#F8F3EA' }}>
+                    {c.name}
+                  </div>
+                )}
 
-                {/* Topic */}
+                {/* Topic — always visible */}
                 {c.topic && (
-                  <div className={`text-xs leading-relaxed ${isExpanded ? '' : 'line-clamp-2'}`} style={{ color: '#b89b84' }}>
+                  <div className="text-xs leading-relaxed" style={{ color: '#b89b84' }}>
                     <span className="not-italic font-semibold mr-1" style={{ color: '#B79143' }}>Topic:</span>
                     <span className="italic">{c.topic}</span>
                   </div>
                 )}
 
-                {/* Description */}
-                {c.description && (
+                {/* Description — only when expanded */}
+                {isExpanded && c.description && (
                   <div
-                    className={`text-xs leading-relaxed mt-2 ${isExpanded ? '' : 'line-clamp-2'}`}
+                    className="text-xs leading-relaxed mt-3 max-w-3xl"
                     style={{ color: '#9a8070' }}
                   >
                     {c.description}
