@@ -6,7 +6,6 @@ const CommitteesSection = forwardRef(({ displayCommittees }, ref) => {
 
   function handleExpand(id) {
     setExpandedId(prev => (prev === id ? null : id));
-    // Scroll to card after state update
     setTimeout(() => {
       cardRefs.current[id]?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }, 50);
@@ -62,104 +61,160 @@ const CommitteesSection = forwardRef(({ displayCommittees }, ref) => {
                 ref={el => (cardRefs.current[c.id] = el)}
                 onClick={() => !isExpanded && handleExpand(c.id)}
                 className={[
-                  'rounded-xl p-5 sm:p-6 backdrop-blur-md border flex flex-col transition-all duration-250',
+                  'rounded-xl backdrop-blur-md border flex flex-col transition-all duration-250',
                   isExpanded ? 'col-span-full cursor-default' : 'cursor-pointer hover:-translate-y-1.5 hover:shadow-lg',
                   isDimmed ? 'opacity-25 scale-[0.97] pointer-events-none' : '',
                 ].join(' ')}
                 style={{
                   background: 'rgba(59,10,20,0.58)',
                   borderColor: isExpanded ? 'rgba(183,145,67,0.45)' : 'rgba(183,145,67,0.18)',
+                  // offset for fixed navbar (~64px) + a little breathing room
+                  scrollMarginTop: '80px',
                   ...(isExpanded ? { gridColumn: '1 / -1' } : {}),
                 }}
               >
-                {/* Card header — logo + abbr */}
-                <div
-                  className="flex items-center gap-3 pb-3 mb-3"
-                  style={{ borderBottom: '2px solid #B79143' }}
-                >
-                  {c.logoUrl ? (
-                    <img
-                      src={c.logoUrl}
-                      alt={`${c.name} logo`}
-                      className="rounded-xl object-contain shrink-0 border"
-                      style={{
-                        width: isExpanded ? '56px' : '44px',
-                        height: isExpanded ? '56px' : '44px',
-                        background: 'rgba(183,145,67,0.1)',
-                        borderColor: 'rgba(183,145,67,0.3)',
-                        transition: 'width 0.25s, height 0.25s',
-                      }}
-                    />
-                  ) : (
-                    <div
-                      className="rounded-xl flex items-center justify-center text-xs font-bold shrink-0 border"
-                      style={{
-                        width: isExpanded ? '56px' : '44px',
-                        height: isExpanded ? '56px' : '44px',
-                        color: '#B79143',
-                        background: 'rgba(183,145,67,0.1)',
-                        borderColor: 'rgba(183,145,67,0.3)',
-                        transition: 'width 0.25s, height 0.25s',
-                      }}
-                    >
-                      {(c.abbr || c.name)?.slice(0, 2)?.toUpperCase()}
-                    </div>
-                  )}
 
-                  <div className="flex flex-col gap-0.5 min-w-0">
-                    <span className="text-2xl font-extrabold tracking-wider" style={{ color: '#B79143' }}>
-                      {c.abbr || c.name?.slice(0, 4)?.toUpperCase() || 'CM'}
-                    </span>
-                    {isExpanded && (
-                      <span className="text-xs font-semibold leading-snug" style={{ color: '#F8F3EA' }}>
-                        {c.name}
-                      </span>
-                    )}
-                  </div>
-                </div>
-
-                {/* Name — only when collapsed */}
-                {!isExpanded && (
-                  <div className="text-sm font-semibold mb-2 leading-snug" style={{ color: '#F8F3EA' }}>
-                    {c.name}
-                  </div>
-                )}
-
-                {/* Topic — always visible */}
-                {c.topic && (
-                  <div className="text-xs leading-relaxed" style={{ color: '#b89b84' }}>
-                    <span className="not-italic font-semibold mr-1" style={{ color: '#B79143' }}>Topic:</span>
-                    <span className="italic">{c.topic}</span>
-                  </div>
-                )}
-
-                {/* Description — only when expanded */}
-                {isExpanded && c.description && (
-                  <div
-                    className="text-xs leading-relaxed mt-3 max-w-3xl"
-                    style={{ color: '#9a8070' }}
-                  >
-                    {c.description}
-                  </div>
-                )}
-
-                {/* Footer */}
+                {/* ── EXPANDED LAYOUT ── */}
                 {isExpanded ? (
-                  <div className="flex justify-end mt-4">
-                    <button
-                      onClick={e => { e.stopPropagation(); setExpandedId(null); }}
-                      className="text-xs font-semibold uppercase tracking-widest px-4 py-2 rounded-lg border transition hover:bg-[rgba(183,145,67,0.1)]"
-                      style={{ color: '#B79143', borderColor: 'rgba(183,145,67,0.3)' }}
-                    >
-                      Close ↑
-                    </button>
+                  <div className="p-5 sm:p-7">
+                    {/* Top row: big logo + name/abbr block */}
+                    <div className="flex items-start gap-5 mb-5">
+                      {c.logoUrl ? (
+                        <img
+                          src={c.logoUrl}
+                          alt={`${c.name} logo`}
+                          className="rounded-2xl object-contain shrink-0 border"
+                          style={{
+                            width: '96px',
+                            height: '96px',
+                            background: 'rgba(183,145,67,0.1)',
+                            borderColor: 'rgba(183,145,67,0.35)',
+                          }}
+                        />
+                      ) : (
+                        <div
+                          className="rounded-2xl flex items-center justify-center font-bold shrink-0 border text-2xl"
+                          style={{
+                            width: '96px',
+                            height: '96px',
+                            color: '#B79143',
+                            background: 'rgba(183,145,67,0.1)',
+                            borderColor: 'rgba(183,145,67,0.35)',
+                          }}
+                        >
+                          {(c.abbr || c.name)?.slice(0, 2)?.toUpperCase()}
+                        </div>
+                      )}
+
+                      <div className="flex flex-col justify-center gap-1 min-w-0 pt-1">
+                        <span
+                          className="text-3xl font-extrabold tracking-wider leading-none"
+                          style={{ color: '#B79143' }}
+                        >
+                          {c.abbr || c.name?.slice(0, 4)?.toUpperCase() || 'CM'}
+                        </span>
+                        <span
+                          className="text-sm font-semibold leading-snug mt-1"
+                          style={{ color: '#F8F3EA' }}
+                        >
+                          {c.name}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Divider */}
+                    <div className="mb-4" style={{ borderTop: '2px solid #B79143' }} />
+
+                    {/* Topic */}
+                    {c.topic && (
+                      <div className="text-xs leading-relaxed mb-3" style={{ color: '#b89b84' }}>
+                        <span className="font-semibold mr-1" style={{ color: '#B79143' }}>Topic:</span>
+                        <span className="italic">{c.topic}</span>
+                      </div>
+                    )}
+
+                    {/* Description */}
+                    {c.description && (
+                      <div
+                        className="text-xs leading-relaxed max-w-3xl"
+                        style={{ color: '#9a8070' }}
+                      >
+                        {c.description}
+                      </div>
+                    )}
+
+                    {/* Close button */}
+                    <div className="flex justify-end mt-5">
+                      <button
+                        onClick={e => { e.stopPropagation(); setExpandedId(null); }}
+                        className="text-xs font-semibold uppercase tracking-widest px-4 py-2 rounded-lg border transition hover:bg-[rgba(183,145,67,0.1)]"
+                        style={{ color: '#B79143', borderColor: 'rgba(183,145,67,0.3)' }}
+                      >
+                        Close ↑
+                      </button>
+                    </div>
                   </div>
                 ) : (
-                  <div
-                    className="mt-auto pt-3 text-[10px] uppercase tracking-[0.15em] flex items-center gap-1"
-                    style={{ color: 'rgba(183,145,67,0.5)' }}
-                  >
-                    ▼ Expand
+
+                  /* ── COLLAPSED LAYOUT ── */
+                  <div className="p-5 sm:p-6 flex flex-col flex-1">
+                    {/* Header: logo + abbr */}
+                    <div
+                      className="flex items-center gap-3 pb-3 mb-3"
+                      style={{ borderBottom: '2px solid #B79143' }}
+                    >
+                      {c.logoUrl ? (
+                        <img
+                          src={c.logoUrl}
+                          alt={`${c.name} logo`}
+                          className="rounded-xl object-contain shrink-0 border"
+                          style={{
+                            width: '52px',
+                            height: '52px',
+                            background: 'rgba(183,145,67,0.1)',
+                            borderColor: 'rgba(183,145,67,0.3)',
+                          }}
+                        />
+                      ) : (
+                        <div
+                          className="rounded-xl flex items-center justify-center text-sm font-bold shrink-0 border"
+                          style={{
+                            width: '52px',
+                            height: '52px',
+                            color: '#B79143',
+                            background: 'rgba(183,145,67,0.1)',
+                            borderColor: 'rgba(183,145,67,0.3)',
+                          }}
+                        >
+                          {(c.abbr || c.name)?.slice(0, 2)?.toUpperCase()}
+                        </div>
+                      )}
+
+                      <span className="text-2xl font-extrabold tracking-wider" style={{ color: '#B79143' }}>
+                        {c.abbr || c.name?.slice(0, 4)?.toUpperCase() || 'CM'}
+                      </span>
+                    </div>
+
+                    {/* Name */}
+                    <div className="text-sm font-semibold mb-2 leading-snug" style={{ color: '#F8F3EA' }}>
+                      {c.name}
+                    </div>
+
+                    {/* Topic */}
+                    {c.topic && (
+                      <div className="text-xs leading-relaxed line-clamp-2" style={{ color: '#b89b84' }}>
+                        <span className="font-semibold mr-1" style={{ color: '#B79143' }}>Topic:</span>
+                        <span className="italic">{c.topic}</span>
+                      </div>
+                    )}
+
+                    {/* Expand hint */}
+                    <div
+                      className="mt-auto pt-3 text-[10px] uppercase tracking-[0.15em] flex items-center gap-1"
+                      style={{ color: 'rgba(183,145,67,0.5)' }}
+                    >
+                      ▼ Expand
+                    </div>
                   </div>
                 )}
               </div>
