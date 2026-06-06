@@ -44,7 +44,7 @@ const emptyDetails = {
   imageUrl: '',
 };
 
-const emptyCommittee = { name: '', abbr: '', seats: '', description: '', topic: '' };
+const emptyCommittee = { name: '', abbr: '', seats: '', description: '', topic: '', logoUrl: '' };
 const emptyPackage   = { name: '', details: '', amount: '' };
 const emptyPayments  = { bankAccount: '', bankName: '', jazzCash: '', jazzCashName: '', easyPaisa: '', easyPaisaName: '' };
 
@@ -311,14 +311,22 @@ export default function EventManagement() {
   ]);
   const [wizPayments,   setWizPayments]   = useState(emptyPayments);
   const [saving,        setSaving]        = useState(false);
+
+  // ── Banner / Venue logo ──
   const [imageFile,     setImageFile]     = useState(null);
   const [imagePreview,  setImagePreview]  = useState(null);
   const [venueLogoFile,    setVenueLogoFile]    = useState(null);
   const [venueLogoPreview, setVenueLogoPreview] = useState(null);
   const [cropModal,     setCropModal]     = useState(null);
   const [cropFile,      setCropFile]      = useState(null);
-  const imageRef    = useRef();
+  const imageRef     = useRef();
   const venueLogoRef = useRef();
+
+  // ── Committee logos ──
+  const committeeLogoRefs                               = useRef({});
+  const [committeeLogoPreviews, setCommitteeLogoPreviews] = useState({});
+  const [committeeLogoFiles,    setCommitteeLogoFiles]    = useState({});
+
   const [detailTab,         setDetailTab]         = useState('info');
   const [filterCommittee,   setFilterCommittee]   = useState('all');
   const [filterSponsorLvl,  setFilterSponsorLvl]  = useState('all');
@@ -423,7 +431,7 @@ export default function EventManagement() {
     } catch (e) { toast.error('Update failed: ' + e.message); }
   }
 
-  // ── Image Handling ──
+  // ── Banner / Venue Logo Handling ──
   function handleImageSelect(e) {
     const file = e.target.files[0];
     if (!file) return;
@@ -456,27 +464,100 @@ export default function EventManagement() {
     if (venueLogoRef.current) venueLogoRef.current.value = '';
   }
 
+  // ── Committee Logo Handling ──
+  function handleCommitteeLogoSelect(e, index) {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) { toast.error('Please select an image file'); return; }
+    if (file.size > 2 * 1024 * 1024) { toast.error('Logo must be under 2 MB'); return; }
+    const preview = URL.createObjectURL(file);
+    setCommitteeLogoFiles(prev  => ({ ...prev, [index]: file }));
+    setCommitteeLogoPreviews(prev => ({ ...prev, [index]: preview }));
+  }
+  function clearCommitteeLogo(index) {
+    const prev = committeeLogoPreviews[index];
+    if (prev && prev.startsWith('blob:')) URL.revokeObjectURL(prev);
+    setCommitteeLogoFiles(p  => { const n = { ...p };  delete n[index]; return n; });
+    setCommitteeLogoPreviews(p => { const n = { ...p }; delete n[index]; return n; });
+    updateCommitteeRow(index, 'logoUrl', '');
+    if (committeeLogoRefs.current[index]) committeeLogoRefs.current[index].value = '';
+  }
+
   // ── View Openers ──
   function openCreate() {
     if (!canEdit) return;
     setEditingId(null); setDetails(emptyDetails);
     setCommitteeRows([{ ...emptyCommittee }]);
-    setPackages([{ name: 'Gold', details: 'Logo on banner, 2 VIP seats, social media mention', amount: '50000' }, { name: 'Silver', details: 'Logo on banner, 1 VIP seat', amount: '30000' }, { name: 'Bronze', details: 'Social media mention', amount: '15000' }]);
-    setWizPayments(emptyPayments); clearImage(); clearVenueLogo();
+    setPackages([
+      { name: 'Gold',   details: 'Logo on banner, 2 VIP seats, social media mention', amount: '50000' },
+      { name: 'Silver', details: 'Logo on banner, 1 VIP seat',                        amount: '30000' },
+      { name: 'Bronze', details: 'Social media mention',                              amount: '15000' },
+    ]);
+    setWizPayments(emptyPayments);
+    clearImage(); clearVenueLogo();
+    setCommitteeLogoFiles({});
+    setCommitteeLogoPreviews({});
     setWizStep(0); setView('wizard');
   }
+
   function openEdit(ev) {
     if (!canEdit) return;
     setEditingId(ev.id);
-    setDetails({ name: ev.name || '', registrationStartDate: ev.registrationStartDate || '', registrationEndDate: ev.registrationEndDate || '', startDate: ev.startDate || ev.date || '', endDate: ev.endDate || ev.date || '', venue: ev.venue || '', venueLocation: ev.venueLocation || '', venueIntro: ev.venueIntro || '', venueLogoUrl: ev.venueLogoUrl || '', cardAllotmentDate: ev.cardAllotmentDate || '', description: ev.description || '', status: ev.status || 'active', entryFees: ev.entryFees || '', currency: ev.currency || 'PKR', imageUrl: ev.imageUrl || '' });
+    setDetails({
+      name: ev.name || '',
+      registrationStartDate: ev.registrationStartDate || '',
+      registrationEndDate: ev.registrationEndDate || '',
+      startDate: ev.startDate || ev.date || '',
+      endDate: ev.endDate || ev.date || '',
+      venue: ev.venue || '',
+      venueLocation: ev.venueLocation || '',
+      venueIntro: ev.venueIntro || '',
+      venueLogoUrl: ev.venueLogoUrl || '',
+      cardAllotmentDate: ev.cardAllotmentDate || '',
+      description: ev.description || '',
+      status: ev.status || 'active',
+      entryFees: ev.entryFees || '',
+      currency: ev.currency || 'PKR',
+      imageUrl: ev.imageUrl || '',
+    });
     const evComms = committees.filter(c => c.eventId === ev.id);
-    setCommitteeRows(evComms.length ? evComms.map(c => ({ id: c.id, name: c.name || '', abbr: c.abbr || '', topic: c.topic || '', seats: String(c.totalSeats ?? c.seats ?? ''), description: c.description || '' })) : [{ ...emptyCommittee }]);
-    setPackages(ev.sponsorPackages?.length ? ev.sponsorPackages.map(p => ({ name: p.name, details: p.details || '', amount: String(p.amount || '') })) : [{ ...emptyPackage }]);
-    setWizPayments({ bankAccount: ev.bankAccount || '', bankName: ev.bankName || '', jazzCash: ev.jazzCash || '', jazzCashName: ev.jazzCashName || '', easyPaisa: ev.easyPaisa || '', easyPaisaName: ev.easyPaisaName || '' });
+    setCommitteeRows(
+      evComms.length
+        ? evComms.map(c => ({
+            id: c.id,
+            name: c.name || '',
+            abbr: c.abbr || '',
+            topic: c.topic || '',
+            seats: String(c.totalSeats ?? c.seats ?? ''),
+            description: c.description || '',
+            logoUrl: c.logoUrl || '',
+          }))
+        : [{ ...emptyCommittee }]
+    );
+    // Pre-populate committee logo previews from existing URLs
+    const logoMap = {};
+    evComms.forEach((c, i) => { if (c.logoUrl) logoMap[i] = c.logoUrl; });
+    setCommitteeLogoPreviews(logoMap);
+    setCommitteeLogoFiles({});
+
+    setPackages(
+      ev.sponsorPackages?.length
+        ? ev.sponsorPackages.map(p => ({ name: p.name, details: p.details || '', amount: String(p.amount || '') }))
+        : [{ ...emptyPackage }]
+    );
+    setWizPayments({
+      bankAccount: ev.bankAccount || '',
+      bankName: ev.bankName || '',
+      jazzCash: ev.jazzCash || '',
+      jazzCashName: ev.jazzCashName || '',
+      easyPaisa: ev.easyPaisa || '',
+      easyPaisaName: ev.easyPaisaName || '',
+    });
     setImageFile(null); setImagePreview(ev.imageUrl || null);
     setVenueLogoFile(null); setVenueLogoPreview(ev.venueLogoUrl || null);
     setWizStep(0); setView('wizard');
   }
+
   function openDetail(ev) {
     setSelectedEvent(ev); setDetailTab('info'); setFilterCommittee('all'); setFilterSponsorLvl('all'); setView('detail');
   }
@@ -492,21 +573,44 @@ export default function EventManagement() {
     if (!canEdit) return;
     setSaving(true);
     try {
-      let finalImageUrl    = details.imageUrl    || '';
+      let finalImageUrl     = details.imageUrl    || '';
       let finalVenueLogoUrl = details.venueLogoUrl || '';
-      if (imageFile)    finalImageUrl     = await uploadToR2(imageFile,    `events/${Date.now()}_banner`);
+      if (imageFile)     finalImageUrl     = await uploadToR2(imageFile,    `events/${Date.now()}_banner`);
       if (venueLogoFile) finalVenueLogoUrl = await uploadToR2(venueLogoFile, `events/${Date.now()}_venue_logo`);
-      const sponsorPackages = packages.filter(p => p.name.trim()).map(p => ({ name: p.name.trim(), details: p.details.trim(), amount: parseFloat(p.amount) || 0 }));
-      const totalSeatsForEvent = committeeRows.filter(c => c.name.trim()).reduce((s, c) => s + (parseInt(c.seats) || 0), 0);
+
+      const sponsorPackages = packages
+        .filter(p => p.name.trim())
+        .map(p => ({ name: p.name.trim(), details: p.details.trim(), amount: parseFloat(p.amount) || 0 }));
+      const totalSeatsForEvent = committeeRows
+        .filter(c => c.name.trim())
+        .reduce((s, c) => s + (parseInt(c.seats) || 0), 0);
+
       const eventRow = {
-        name: details.name, registration_start_date: details.registrationStartDate || null, registration_end_date: details.registrationEndDate || null,
-        start_date: details.startDate, end_date: details.endDate, venue: details.venue, venue_location: details.venueLocation || null,
-        venue_intro: details.venueIntro || null, venue_logo_url: finalVenueLogoUrl || null, card_allotment_date: details.cardAllotmentDate || null,
-        description: details.description, status: details.status, entry_fees: parseFloat(details.entryFees) || 0, currency: details.currency,
-        image_url: finalImageUrl, sponsor_packages: sponsorPackages, bank_account: wizPayments.bankAccount, bank_name: wizPayments.bankName,
-        jazz_cash: wizPayments.jazzCash, jazz_cash_name: wizPayments.jazzCashName, easy_paisa: wizPayments.easyPaisa, easy_paisa_name: wizPayments.easyPaisaName,
+        name: details.name,
+        registration_start_date: details.registrationStartDate || null,
+        registration_end_date: details.registrationEndDate || null,
+        start_date: details.startDate,
+        end_date: details.endDate,
+        venue: details.venue,
+        venue_location: details.venueLocation || null,
+        venue_intro: details.venueIntro || null,
+        venue_logo_url: finalVenueLogoUrl || null,
+        card_allotment_date: details.cardAllotmentDate || null,
+        description: details.description,
+        status: details.status,
+        entry_fees: parseFloat(details.entryFees) || 0,
+        currency: details.currency,
+        image_url: finalImageUrl,
+        sponsor_packages: sponsorPackages,
+        bank_account: wizPayments.bankAccount,
+        bank_name: wizPayments.bankName,
+        jazz_cash: wizPayments.jazzCash,
+        jazz_cash_name: wizPayments.jazzCashName,
+        easy_paisa: wizPayments.easyPaisa,
+        easy_paisa_name: wizPayments.easyPaisaName,
         total_seats: totalSeatsForEvent,
       };
+
       let eventId = editingId;
       if (editingId) {
         const { error } = await supabase.from('events').update(eventRow).eq('id', editingId);
@@ -516,9 +620,32 @@ export default function EventManagement() {
         if (error) throw error;
         eventId = data.id;
       }
+
       const validComms = committeeRows.filter(c => c.name.trim());
-      for (const c of validComms) {
-        const cd = { name: c.name.trim(), abbr: c.abbr?.trim() || '', topic: c.topic?.trim() || '', total_seats: parseInt(c.seats) || 0, description: c.description || '', event_id: eventId };
+      for (let idx = 0; idx < validComms.length; idx++) {
+        const c = validComms[idx];
+        // Find the original index in committeeRows so logo maps correctly
+        const originalIdx = committeeRows.indexOf(c);
+
+        // Upload committee logo if a new file was selected
+        let finalCommLogoUrl = c.logoUrl || '';
+        if (committeeLogoFiles[originalIdx]) {
+          finalCommLogoUrl = await uploadToR2(
+            committeeLogoFiles[originalIdx],
+            `committees/${Date.now()}_${originalIdx}_logo`
+          );
+        }
+
+        const cd = {
+          name: c.name.trim(),
+          abbr: c.abbr?.trim() || '',
+          topic: c.topic?.trim() || '',
+          total_seats: parseInt(c.seats) || 0,
+          description: c.description || '',
+          event_id: eventId,
+          logo_url: finalCommLogoUrl || null,
+        };
+
         if (c.id) {
           const { error } = await supabase.from('committees').update(cd).eq('id', c.id);
           if (error) toast.error(`Failed to update committee "${c.name}": ${error.message}`);
@@ -527,9 +654,15 @@ export default function EventManagement() {
           if (error) toast.error(`Failed to create committee "${c.name}": ${error.message}`);
         }
       }
+
       toast.success(editingId ? 'Event updated!' : 'Event created!');
-      setView('list'); fetchAll();
-    } catch (e) { toast.error('Save failed: ' + e.message); } finally { setSaving(false); }
+      setView('list');
+      fetchAll();
+    } catch (e) {
+      toast.error('Save failed: ' + e.message);
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function handleDelete(id, e) {
@@ -555,7 +688,14 @@ export default function EventManagement() {
       const toGenerate = evRegs.filter(r => !existingRegIds.has(r.id));
       if (toGenerate.length === 0) { toast.success('All approved registrations already have cards!'); return; }
       const paymentByReg = Object.fromEntries(payments.filter(p => p.eventId === selectedEvent.id).map(p => [p.registrationId, p.id]));
-      const rows = toGenerate.map(reg => ({ user_id: reg.userId, event_id: reg.eventId, registration_id: reg.id, payment_id: paymentByReg[reg.id] || null, qr_token: generateQRToken(), is_used: false }));
+      const rows = toGenerate.map(reg => ({
+        user_id: reg.userId,
+        event_id: reg.eventId,
+        registration_id: reg.id,
+        payment_id: paymentByReg[reg.id] || null,
+        qr_token: generateQRToken(),
+        is_used: false,
+      }));
       const { error } = await supabase.from('qr_codes').insert(rows);
       if (error) throw error;
       toast.success(`🎫 Generated ${toGenerate.length} digital card${toGenerate.length !== 1 ? 's' : ''}!`);
@@ -570,11 +710,18 @@ export default function EventManagement() {
       const newComm = committees.find(c => c.id === reassignTarget);
       if (!newComm) { toast.error('Committee not found'); return; }
       const oldCommId = reassignModal.registration.committee || null;
-      const { error } = await supabase.rpc('reassign_committee', { reg_id: reassignModal.registration.id, old_comm_id: oldCommId, new_comm_id: reassignTarget, new_comm_name: newComm.name });
+      const { error } = await supabase.rpc('reassign_committee', {
+        reg_id: reassignModal.registration.id,
+        old_comm_id: oldCommId,
+        new_comm_id: reassignTarget,
+        new_comm_name: newComm.name,
+      });
       if (error) throw error;
-      setRegistrations(prev => prev.map(r => r.id === reassignModal.registration.id ? { ...r, committee: reassignTarget, committeeName: newComm.name } : r));
+      setRegistrations(prev => prev.map(r =>
+        r.id === reassignModal.registration.id ? { ...r, committee: reassignTarget, committeeName: newComm.name } : r
+      ));
       setCommittees(prev => prev.map(c => {
-        if (c.id === oldCommId)    return { ...c, filledSeats: Math.max(0, (c.filledSeats || 0) - 1) };
+        if (c.id === oldCommId)      return { ...c, filledSeats: Math.max(0, (c.filledSeats || 0) - 1) };
         if (c.id === reassignTarget) return { ...c, filledSeats: (c.filledSeats || 0) + 1 };
         return c;
       }));
@@ -588,25 +735,53 @@ export default function EventManagement() {
     setDownloadingPdf(true);
     const evRegs  = registrations.filter(r => r.eventId === selectedEvent.id);
     const evComms = committees.filter(c => c.eventId === selectedEvent.id);
-    try { generateEventPDF(selectedEvent, evRegs.filter(r => r.type === 'delegate'), evRegs.filter(r => r.type === 'sponsor'), evComms); toast.success('PDF downloaded!'); }
-    catch { toast.error('PDF generation failed'); } finally { setDownloadingPdf(false); }
+    try {
+      generateEventPDF(selectedEvent, evRegs.filter(r => r.type === 'delegate'), evRegs.filter(r => r.type === 'sponsor'), evComms);
+      toast.success('PDF downloaded!');
+    } catch { toast.error('PDF generation failed'); } finally { setDownloadingPdf(false); }
   }
   function handleDownloadExcel() {
     if (!selectedEvent) return;
     setDownloadingExcel(true);
     const evRegs  = registrations.filter(r => r.eventId === selectedEvent.id);
     const evComms = committees.filter(c => c.eventId === selectedEvent.id);
-    try { generateEventExcel(selectedEvent, evRegs.filter(r => r.type === 'delegate'), evRegs.filter(r => r.type === 'sponsor'), evComms); toast.success('Excel downloaded!'); }
-    catch { toast.error('Excel generation failed'); } finally { setDownloadingExcel(false); }
+    try {
+      generateEventExcel(selectedEvent, evRegs.filter(r => r.type === 'delegate'), evRegs.filter(r => r.type === 'sponsor'), evComms);
+      toast.success('Excel downloaded!');
+    } catch { toast.error('Excel generation failed'); } finally { setDownloadingExcel(false); }
   }
 
   // ── Committee Row Helpers ──
-  function addCommitteeRow()              { setCommitteeRows(r => [...r, { ...emptyCommittee }]); }
-  function removeCommitteeRow(i)          { setCommitteeRows(r => r.filter((_, idx) => idx !== i)); }
-  function updateCommitteeRow(i, k, v)    { setCommitteeRows(r => r.map((row, idx) => idx === i ? { ...row, [k]: v } : row)); }
-  function addPackage()                   { setPackages(p => [...p, { ...emptyPackage }]); }
-  function removePackage(i)               { setPackages(p => p.filter((_, idx) => idx !== i)); }
-  function updatePackage(i, k, v)         { setPackages(p => p.map((pkg, idx) => idx === i ? { ...pkg, [k]: v } : pkg)); }
+  function addCommitteeRow() {
+    setCommitteeRows(r => [...r, { ...emptyCommittee }]);
+  }
+  function removeCommitteeRow(i) {
+    clearCommitteeLogo(i);
+    setCommitteeRows(r => r.filter((_, idx) => idx !== i));
+    // Shift logo maps down for rows after the removed one
+    setCommitteeLogoFiles(prev => {
+      const n = {};
+      Object.entries(prev).forEach(([k, v]) => {
+        const ki = parseInt(k);
+        if (ki < i) n[ki] = v;
+        else if (ki > i) n[ki - 1] = v;
+      });
+      return n;
+    });
+    setCommitteeLogoPreviews(prev => {
+      const n = {};
+      Object.entries(prev).forEach(([k, v]) => {
+        const ki = parseInt(k);
+        if (ki < i) n[ki] = v;
+        else if (ki > i) n[ki - 1] = v;
+      });
+      return n;
+    });
+  }
+  function updateCommitteeRow(i, k, v)  { setCommitteeRows(r => r.map((row, idx) => idx === i ? { ...row, [k]: v } : row)); }
+  function addPackage()                  { setPackages(p => [...p, { ...emptyPackage }]); }
+  function removePackage(i)              { setPackages(p => p.filter((_, idx) => idx !== i)); }
+  function updatePackage(i, k, v)        { setPackages(p => p.map((pkg, idx) => idx === i ? { ...pkg, [k]: v } : pkg)); }
 
   const BackgroundOverlay = () => (
     <div className="fixed inset-0 z-0">
@@ -622,7 +797,7 @@ export default function EventManagement() {
   );
 
   /* ══════════════════════════════════════════════════════════════
-     WIZARD VIEW — superAdmin only
+     WIZARD VIEW
   ══════════════════════════════════════════════════════════════ */
   if (view === 'wizard') return (
     <div className="relative min-h-screen overflow-hidden md:pl-[272px]" style={{ backgroundColor: BG_COLOR }}>
@@ -635,7 +810,7 @@ export default function EventManagement() {
         </div>
         <WizardBar current={wizStep} />
 
-        {/* Step 0 — Event Details */}
+        {/* ── Step 0 — Event Details ── */}
         {wizStep === 0 && (
           <div className="rounded-2xl border backdrop-blur-xl p-4 sm:p-6 max-w-3xl" style={{ borderColor: BORDER_GOLD, backgroundColor: PANEL_BG }}>
             <h3 className="text-lg font-bold text-[#F8F3EA] mb-6">Step 1 — Event Details</h3>
@@ -647,8 +822,13 @@ export default function EventManagement() {
               <div><label className={labelCls}>Registration Start Date</label><input className={inputCls} type="date" value={details.registrationStartDate} onChange={e => setDetails({ ...details, registrationStartDate: e.target.value })} /></div>
               <div><label className={labelCls}>Registration Close Date</label><input className={inputCls} type="date" value={details.registrationEndDate} min={details.registrationStartDate || undefined} onChange={e => setDetails({ ...details, registrationEndDate: e.target.value })} /></div>
               <div><label className={labelCls}>Event Start Date *</label><input className={inputCls} type="date" value={details.startDate} onChange={e => setDetails({ ...details, startDate: e.target.value })} /></div>
-              <div><label className={labelCls}>Event End Date <span className="font-normal normal-case tracking-normal text-[#b89b84]">(blank = single-day)</span></label><input className={inputCls} type="date" value={details.endDate} min={details.startDate} onChange={e => setDetails({ ...details, endDate: e.target.value })} /></div>
+              <div>
+                <label className={labelCls}>Event End Date <span className="font-normal normal-case tracking-normal text-[#b89b84]">(blank = single-day)</span></label>
+                <input className={inputCls} type="date" value={details.endDate} min={details.startDate} onChange={e => setDetails({ ...details, endDate: e.target.value })} />
+              </div>
               <div><label className={labelCls}>Card Allotment Date</label><input className={inputCls} type="date" value={details.cardAllotmentDate} onChange={e => setDetails({ ...details, cardAllotmentDate: e.target.value })} /></div>
+
+              {/* Venue block */}
               <div className="col-span-full mt-4">
                 <div className="rounded-xl border p-4 space-y-4" style={{ borderColor: BORDER_GOLD, backgroundColor: CARD_BG }}>
                   <h4 className="text-sm font-bold text-[#B79143] uppercase tracking-wider">📍 Venue Details</h4>
@@ -663,8 +843,8 @@ export default function EventManagement() {
                         <div className="flex items-center gap-4">
                           <img src={venueLogoPreview} alt="Venue logo" className="w-24 h-24 object-contain rounded-xl border bg-black/20" style={{ borderColor: BORDER_GOLD_STRONG }} />
                           <div className="flex flex-col gap-2">
-                            <button className="rounded-lg border px-3 py-1.5 text-xs text-[#B79143] hover:bg-[#B79143]/10 transition" style={{ borderColor: BORDER_GOLD_MEDIUM }} onClick={() => venueLogoRef.current?.click()}>🔄 Change</button>
-                            <button className="rounded-lg border border-red-400/40 bg-red-500/15 px-3 py-1.5 text-xs text-red-300 hover:bg-red-500/25 transition" onClick={clearVenueLogo}>✕ Remove</button>
+                            <button type="button" className="rounded-lg border px-3 py-1.5 text-xs text-[#B79143] hover:bg-[#B79143]/10 transition" style={{ borderColor: BORDER_GOLD_MEDIUM }} onClick={() => venueLogoRef.current?.click()}>🔄 Change</button>
+                            <button type="button" className="rounded-lg border border-red-400/40 bg-red-500/15 px-3 py-1.5 text-xs text-red-300 hover:bg-red-500/25 transition" onClick={clearVenueLogo}>✕ Remove</button>
                           </div>
                         </div>
                       ) : (
@@ -678,10 +858,28 @@ export default function EventManagement() {
                   </div>
                 </div>
               </div>
-              <div><label className={labelCls}>Status</label><select className={inputCls + ' appearance-none'} value={details.status} onChange={e => setDetails({ ...details, status: e.target.value })}><option value="active">Active</option><option value="upcoming">Upcoming</option><option value="completed">Completed</option><option value="cancelled">Cancelled</option></select></div>
+
+              <div>
+                <label className={labelCls}>Status</label>
+                <select className={inputCls + ' appearance-none'} value={details.status} onChange={e => setDetails({ ...details, status: e.target.value })}>
+                  <option value="active">Active</option>
+                  <option value="upcoming">Upcoming</option>
+                  <option value="completed">Completed</option>
+                  <option value="cancelled">Cancelled</option>
+                </select>
+              </div>
               <div><label className={labelCls}>Delegate Entry Fee</label><input className={inputCls} type="number" placeholder="e.g. 5000" value={details.entryFees} onChange={e => setDetails({ ...details, entryFees: e.target.value })} /></div>
-              <div><label className={labelCls}>Currency</label><select className={inputCls + ' appearance-none'} value={details.currency} onChange={e => setDetails({ ...details, currency: e.target.value })}><option value="PKR">PKR — Pakistani Rupee</option><option value="USD">USD — US Dollar</option><option value="EUR">EUR — Euro</option></select></div>
+              <div>
+                <label className={labelCls}>Currency</label>
+                <select className={inputCls + ' appearance-none'} value={details.currency} onChange={e => setDetails({ ...details, currency: e.target.value })}>
+                  <option value="PKR">PKR — Pakistani Rupee</option>
+                  <option value="USD">USD — US Dollar</option>
+                  <option value="EUR">EUR — Euro</option>
+                </select>
+              </div>
               <div className="col-span-full"><label className={labelCls}>Description</label><textarea className={inputCls + ' resize-y'} rows={4} placeholder="Event overview, theme…" value={details.description} onChange={e => setDetails({ ...details, description: e.target.value })} /></div>
+
+              {/* Event Banner */}
               <div className="col-span-full">
                 <label className={labelCls}>Event Banner <span className="font-normal normal-case tracking-normal text-[#b89b84]">(optional)</span></label>
                 <input type="file" ref={imageRef} accept="image/*" onChange={handleImageSelect} className="hidden" />
@@ -689,8 +887,8 @@ export default function EventManagement() {
                   <div>
                     <img src={imagePreview} alt="Banner preview" className="w-full max-h-[220px] object-cover rounded-xl border" style={{ borderColor: BORDER_GOLD_STRONG }} />
                     <div className="flex gap-2 mt-3">
-                      <button className="rounded-lg border px-3 py-1.5 text-xs text-[#B79143] hover:bg-[#B79143]/10 transition" style={{ borderColor: BORDER_GOLD_MEDIUM }} onClick={() => imageRef.current?.click()}>🔄 Change</button>
-                      <button className="rounded-lg border border-red-400/40 bg-red-500/15 px-3 py-1.5 text-xs text-red-300 hover:bg-red-500/25 transition" onClick={clearImage}>✕ Remove</button>
+                      <button type="button" className="rounded-lg border px-3 py-1.5 text-xs text-[#B79143] hover:bg-[#B79143]/10 transition" style={{ borderColor: BORDER_GOLD_MEDIUM }} onClick={() => imageRef.current?.click()}>🔄 Change</button>
+                      <button type="button" className="rounded-lg border border-red-400/40 bg-red-500/15 px-3 py-1.5 text-xs text-red-300 hover:bg-red-500/25 transition" onClick={clearImage}>✕ Remove</button>
                     </div>
                   </div>
                 ) : (
@@ -705,34 +903,120 @@ export default function EventManagement() {
           </div>
         )}
 
-        {/* Step 1 — Committees */}
+        {/* ── Step 1 — Committees ── */}
         {wizStep === 1 && (
           <div className="rounded-2xl border backdrop-blur-xl p-4 sm:p-6 max-w-3xl" style={{ borderColor: BORDER_GOLD, backgroundColor: PANEL_BG }}>
             <h3 className="text-lg font-bold text-[#F8F3EA] mb-6">Step 2 — Committees & Seat Allocation</h3>
-            <div className="rounded-xl border border-blue-400/30 bg-blue-500/10 p-4 text-sm text-blue-100 mb-6">💡 Set seat limit to <strong>0</strong> for unlimited seats.</div>
+            <div className="rounded-xl border border-blue-400/30 bg-blue-500/10 p-4 text-sm text-blue-100 mb-6">
+              💡 Set seat limit to <strong>0</strong> for unlimited seats.
+            </div>
             <div className="space-y-4">
               {committeeRows.map((c, i) => (
                 <div key={i} className="rounded-xl border p-4 space-y-3" style={{ borderColor: BORDER_GOLD, backgroundColor: CARD_BG }}>
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold text-[#B79143] uppercase tracking-wider">Committee {i + 1}</span>
-                    {committeeRows.length > 1 && <button className="rounded-lg border border-red-400/40 bg-red-500/15 px-2.5 py-1 text-xs text-red-300 hover:bg-red-500/25 transition" onClick={() => removeCommitteeRow(i)}>✕</button>}
+                    {committeeRows.length > 1 && (
+                      <button type="button" className="rounded-lg border border-red-400/40 bg-red-500/15 px-2.5 py-1 text-xs text-red-300 hover:bg-red-500/25 transition" onClick={() => removeCommitteeRow(i)}>✕</button>
+                    )}
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div className="col-span-full"><label className={labelCls}>Full Committee Name *</label><input className={inputCls} placeholder="e.g. United Nations Security Council" value={c.name} onChange={e => updateCommitteeRow(i, 'name', e.target.value)} /></div>
-                    <div><label className={labelCls}>Abbreviation</label><input className={inputCls} placeholder="e.g. UNSC" value={c.abbr} onChange={e => updateCommitteeRow(i, 'abbr', e.target.value)} /></div>
-                    <div><label className={labelCls}>Seats (0=∞)</label><input className={inputCls} type="number" min="0" placeholder="30" value={c.seats} onChange={e => updateCommitteeRow(i, 'seats', e.target.value)} /></div>
-                    <div className="col-span-full"><label className={labelCls}>Topic / Agenda</label><input className={inputCls} placeholder="e.g. Addressing the Use of Autonomous Weapons" value={c.topic} onChange={e => updateCommitteeRow(i, 'topic', e.target.value)} /></div>
-                    <div className="col-span-full"><label className={labelCls}>Description <span className="font-normal normal-case tracking-normal text-[#b89b84]">(optional)</span></label><input className={inputCls} placeholder="Optional internal notes" value={c.description} onChange={e => updateCommitteeRow(i, 'description', e.target.value)} /></div>
+                    <div className="col-span-full">
+                      <label className={labelCls}>Full Committee Name *</label>
+                      <input className={inputCls} placeholder="e.g. United Nations Security Council" value={c.name} onChange={e => updateCommitteeRow(i, 'name', e.target.value)} />
+                    </div>
+                    <div>
+                      <label className={labelCls}>Abbreviation</label>
+                      <input className={inputCls} placeholder="e.g. UNSC" value={c.abbr} onChange={e => updateCommitteeRow(i, 'abbr', e.target.value)} />
+                    </div>
+                    <div>
+                      <label className={labelCls}>Seats (0=∞)</label>
+                      <input className={inputCls} type="number" min="0" placeholder="30" value={c.seats} onChange={e => updateCommitteeRow(i, 'seats', e.target.value)} />
+                    </div>
+                    <div className="col-span-full">
+                      <label className={labelCls}>Topic / Agenda</label>
+                      <input className={inputCls} placeholder="e.g. Addressing the Use of Autonomous Weapons" value={c.topic} onChange={e => updateCommitteeRow(i, 'topic', e.target.value)} />
+                    </div>
+                    <div className="col-span-full">
+                      <label className={labelCls}>Description <span className="font-normal normal-case tracking-normal text-[#b89b84]">(optional)</span></label>
+                      <textarea className={inputCls + ' resize-y'} rows={2} placeholder="Optional internal notes or public description" value={c.description} onChange={e => updateCommitteeRow(i, 'description', e.target.value)} />
+                    </div>
+
+                    {/* ── Committee Logo Upload ── */}
+                    <div className="col-span-full">
+                      <label className={labelCls}>
+                        Committee Logo <span className="font-normal normal-case tracking-normal text-[#b89b84]">(optional, shown on public page)</span>
+                      </label>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        ref={el => (committeeLogoRefs.current[i] = el)}
+                        onChange={e => handleCommitteeLogoSelect(e, i)}
+                        className="hidden"
+                      />
+                      {committeeLogoPreviews[i] ? (
+                        <div className="flex items-center gap-4">
+                          <img
+                            src={committeeLogoPreviews[i]}
+                            alt="Committee logo preview"
+                            className="w-16 h-16 object-contain rounded-xl border bg-black/20"
+                            style={{ borderColor: BORDER_GOLD_STRONG }}
+                          />
+                          <div className="flex flex-col gap-2">
+                            <button
+                              type="button"
+                              className="rounded-lg border px-3 py-1.5 text-xs text-[#B79143] hover:bg-[#B79143]/10 transition"
+                              style={{ borderColor: BORDER_GOLD_MEDIUM }}
+                              onClick={() => committeeLogoRefs.current[i]?.click()}
+                            >
+                              🔄 Change
+                            </button>
+                            <button
+                              type="button"
+                              className="rounded-lg border border-red-400/40 bg-red-500/15 px-3 py-1.5 text-xs text-red-300 hover:bg-red-500/25 transition"
+                              onClick={() => clearCommitteeLogo(i)}
+                            >
+                              ✕ Remove
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div
+                          className="border-2 border-dashed rounded-xl p-4 text-center cursor-pointer transition-all hover:border-[#B79143]/50 hover:bg-[rgba(183,145,67,0.04)]"
+                          style={{ borderColor: BORDER_GOLD_MEDIUM, backgroundColor: 'rgba(0,0,0,0.2)' }}
+                          onClick={() => committeeLogoRefs.current[i]?.click()}
+                        >
+                          <div className="text-xl mb-1">🏛️</div>
+                          <div className="text-xs font-semibold text-[#B79143]">Upload Committee Logo</div>
+                          <div className="text-[10px] text-[#b89b84] mt-0.5">JPG, PNG, WebP, SVG — max 2 MB</div>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
               ))}
             </div>
-            {(() => { const t = committeeRows.reduce((s, c) => s + (parseInt(c.seats) || 0), 0); return t > 0 ? (<div className="mt-4 rounded-xl border p-4 text-sm" style={{ borderColor: BORDER_GOLD, backgroundColor: 'rgba(183,145,67,0.08)' }}>📊 Total event capacity: <strong className="text-[#D7B46A]">{t} seats</strong></div>) : null; })()}
-            <button className="mt-4 rounded-xl border px-4 py-2.5 text-sm font-semibold text-[#B79143] hover:bg-[rgba(183,145,67,0.08)] transition w-full sm:w-auto" style={{ borderColor: BORDER_GOLD_MEDIUM }} onClick={addCommitteeRow}>+ Add Committee</button>
+
+            {(() => {
+              const t = committeeRows.reduce((s, c) => s + (parseInt(c.seats) || 0), 0);
+              return t > 0 ? (
+                <div className="mt-4 rounded-xl border p-4 text-sm" style={{ borderColor: BORDER_GOLD, backgroundColor: 'rgba(183,145,67,0.08)' }}>
+                  📊 Total event capacity: <strong className="text-[#D7B46A]">{t} seats</strong>
+                </div>
+              ) : null;
+            })()}
+
+            <button
+              type="button"
+              className="mt-4 rounded-xl border px-4 py-2.5 text-sm font-semibold text-[#B79143] hover:bg-[rgba(183,145,67,0.08)] transition w-full sm:w-auto"
+              style={{ borderColor: BORDER_GOLD_MEDIUM }}
+              onClick={addCommitteeRow}
+            >
+              + Add Committee
+            </button>
           </div>
         )}
 
-        {/* Step 2 — Sponsor Packages */}
+        {/* ── Step 2 — Sponsor Packages ── */}
         {wizStep === 2 && (
           <div className="rounded-2xl border backdrop-blur-xl p-4 sm:p-6 max-w-3xl" style={{ borderColor: BORDER_GOLD, backgroundColor: PANEL_BG }}>
             <h3 className="text-lg font-bold text-[#F8F3EA] mb-6">Step 3 — Sponsor Packages</h3>
@@ -741,7 +1025,9 @@ export default function EventManagement() {
                 <div key={i} className="rounded-xl border p-4 space-y-3" style={{ borderColor: BORDER_GOLD, backgroundColor: CARD_BG }}>
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold text-[#B79143] uppercase tracking-wider">Package {i + 1}</span>
-                    {packages.length > 1 && <button className="rounded-lg border border-red-400/40 bg-red-500/15 px-2.5 py-1 text-xs text-red-300 hover:bg-red-500/25 transition" onClick={() => removePackage(i)}>✕</button>}
+                    {packages.length > 1 && (
+                      <button type="button" className="rounded-lg border border-red-400/40 bg-red-500/15 px-2.5 py-1 text-xs text-red-300 hover:bg-red-500/25 transition" onClick={() => removePackage(i)}>✕</button>
+                    )}
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div><label className={labelCls}>Package Name</label><input className={inputCls} placeholder="e.g. Gold" value={pkg.name} onChange={e => updatePackage(i, 'name', e.target.value)} /></div>
@@ -751,11 +1037,18 @@ export default function EventManagement() {
                 </div>
               ))}
             </div>
-            <button className="mt-4 rounded-xl border px-4 py-2.5 text-sm font-semibold text-[#B79143] hover:bg-[rgba(183,145,67,0.08)] transition w-full sm:w-auto" style={{ borderColor: BORDER_GOLD_MEDIUM }} onClick={addPackage}>+ Add Package</button>
+            <button
+              type="button"
+              className="mt-4 rounded-xl border px-4 py-2.5 text-sm font-semibold text-[#B79143] hover:bg-[rgba(183,145,67,0.08)] transition w-full sm:w-auto"
+              style={{ borderColor: BORDER_GOLD_MEDIUM }}
+              onClick={addPackage}
+            >
+              + Add Package
+            </button>
           </div>
         )}
 
-        {/* Step 3 — Payment Methods */}
+        {/* ── Step 3 — Payment Methods ── */}
         {wizStep === 3 && (
           <div className="rounded-2xl border backdrop-blur-xl p-4 sm:p-6 max-w-3xl" style={{ borderColor: BORDER_GOLD, backgroundColor: PANEL_BG }}>
             <h3 className="text-lg font-bold text-[#F8F3EA] mb-6">Step 4 — Payment Methods</h3>
@@ -777,12 +1070,20 @@ export default function EventManagement() {
           </div>
         )}
 
+        {/* Wizard Nav Buttons */}
         <div className="flex flex-col sm:flex-row gap-3 mt-6">
-          {wizStep > 0 && <button className="rounded-xl border px-5 py-3 text-sm font-semibold text-[#B79143] transition hover:bg-[#B79143]/10" style={{ borderColor: BORDER_GOLD_MEDIUM }} onClick={() => setWizStep(s => s - 1)}>← Previous</button>}
-          <button className="rounded-xl bg-gradient-to-r from-[#8E6B2F] via-[#B79143] to-[#D7B46A] px-5 py-3 text-sm font-semibold text-[#2A0B12] transition hover:scale-[1.02] disabled:opacity-50" onClick={nextStep} disabled={saving}>
+          {wizStep > 0 && (
+            <button type="button" className="rounded-xl border px-5 py-3 text-sm font-semibold text-[#B79143] transition hover:bg-[#B79143]/10" style={{ borderColor: BORDER_GOLD_MEDIUM }} onClick={() => setWizStep(s => s - 1)}>← Previous</button>
+          )}
+          <button
+            type="button"
+            className="rounded-xl bg-gradient-to-r from-[#8E6B2F] via-[#B79143] to-[#D7B46A] px-5 py-3 text-sm font-semibold text-[#2A0B12] transition hover:scale-[1.02] disabled:opacity-50"
+            onClick={nextStep}
+            disabled={saving}
+          >
             {wizStep < 3 ? 'Continue →' : saving ? 'Saving…' : editingId ? 'Update Event ✓' : 'Create Event ✓'}
           </button>
-          <button className="rounded-xl border px-5 py-3 text-sm font-semibold text-[#B79143] transition hover:bg-[#B79143]/10 sm:ml-auto" style={{ borderColor: BORDER_GOLD_MEDIUM }} onClick={() => setView('list')}>Cancel</button>
+          <button type="button" className="rounded-xl border px-5 py-3 text-sm font-semibold text-[#B79143] transition hover:bg-[#B79143]/10 sm:ml-auto" style={{ borderColor: BORDER_GOLD_MEDIUM }} onClick={() => setView('list')}>Cancel</button>
         </div>
       </div>
 
@@ -797,13 +1098,13 @@ export default function EventManagement() {
   ══════════════════════════════════════════════════════════════ */
   if (view === 'detail' && selectedEvent) {
     const ev = selectedEvent;
-    const evComms    = committees.filter(c => c.eventId === ev.id);
-    const evRegs     = registrations.filter(r => r.eventId === ev.id);
+    const evComms     = committees.filter(c => c.eventId === ev.id);
+    const evRegs      = registrations.filter(r => r.eventId === ev.id);
     const evDelegates = evRegs.filter(r => r.type === 'delegate');
     const evSponsors  = evRegs.filter(r => r.type === 'sponsor');
     const approvedCount = evRegs.filter(r => r.paymentStatus === 'approved').length;
-    const filtDels   = evDelegates.filter(d => filterCommittee === 'all' || d.committee === filterCommittee);
-    const filtSpons  = evSponsors.filter(s => filterSponsorLvl === 'all' || s.category === filterSponsorLvl);
+    const filtDels    = evDelegates.filter(d => filterCommittee === 'all' || d.committee === filterCommittee);
+    const filtSpons   = evSponsors.filter(s => filterSponsorLvl === 'all' || s.category === filterSponsorLvl);
     const detailTotalSeats  = evComms.reduce((s, c) => s + (getCommSeats(c) || 0), 0);
     const detailTotalFilled = evComms.reduce((s, c) => s + (c.filledSeats || 0), 0);
     const detailSeatPct     = detailTotalSeats > 0 ? Math.min(100, Math.round((detailTotalFilled / detailTotalSeats) * 100)) : 0;
@@ -820,13 +1121,13 @@ export default function EventManagement() {
     const overbookedCount = overbookedDelegateIds.size;
 
     const tabs = [
-      { key: 'info',        label: 'Event Info' },
-      { key: 'venue',       label: 'Venue' },
-      { key: 'delegates',   label: `Delegates (${evDelegates.length})` },
-      { key: 'sponsors',    label: `Sponsors (${evSponsors.length})` },
-      { key: 'committees',  label: `Committees (${evComms.length})` },
-      { key: 'packages',    label: 'Packages' },
-      { key: 'payments',    label: 'Payment Methods' },
+      { key: 'info',       label: 'Event Info' },
+      { key: 'venue',      label: 'Venue' },
+      { key: 'delegates',  label: `Delegates (${evDelegates.length})` },
+      { key: 'sponsors',   label: `Sponsors (${evSponsors.length})` },
+      { key: 'committees', label: `Committees (${evComms.length})` },
+      { key: 'packages',   label: 'Packages' },
+      { key: 'payments',   label: 'Payment Methods' },
     ];
 
     return (
@@ -848,10 +1149,12 @@ export default function EventManagement() {
               </div>
             </div>
             <div className="flex flex-wrap gap-2">
-              {/* Cards & export — superAdmin only for card generation, everyone can export */}
               {canEdit && (
-                <button className="rounded-xl bg-gradient-to-r from-[#8E6B2F] via-[#B79143] to-[#D7B46A] px-4 py-2.5 text-xs font-semibold text-[#2A0B12] transition hover:scale-[1.02] disabled:opacity-50"
-                  onClick={handleGenerateCards} disabled={generatingCards || approvedCount === 0}>
+                <button
+                  className="rounded-xl bg-gradient-to-r from-[#8E6B2F] via-[#B79143] to-[#D7B46A] px-4 py-2.5 text-xs font-semibold text-[#2A0B12] transition hover:scale-[1.02] disabled:opacity-50"
+                  onClick={handleGenerateCards}
+                  disabled={generatingCards || approvedCount === 0}
+                >
                   {generatingCards ? '⏳…' : `🎫 Cards (${approvedCount})`}
                 </button>
               )}
@@ -887,7 +1190,12 @@ export default function EventManagement() {
 
           {/* Stats Grid */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-5 mb-6">
-            {[{ label: 'Registered', value: evRegs.length, icon: '👥' }, { label: 'Delegates', value: evDelegates.length, icon: '🧑‍💼' }, { label: 'Sponsors', value: evSponsors.length, icon: '🏢' }, { label: 'Committees', value: evComms.length, icon: '⭐' }].map((s, i) => (
+            {[
+              { label: 'Registered', value: evRegs.length,      icon: '👥' },
+              { label: 'Delegates',  value: evDelegates.length,  icon: '🧑‍💼' },
+              { label: 'Sponsors',   value: evSponsors.length,   icon: '🏢' },
+              { label: 'Committees', value: evComms.length,      icon: '⭐' },
+            ].map((s, i) => (
               <div key={i} className="rounded-2xl border backdrop-blur-xl p-4 sm:p-5 transition-all duration-300 hover:scale-[1.02]" style={{ borderColor: BORDER_GOLD, backgroundColor: PANEL_BG }}>
                 <div className="text-xl sm:text-2xl mb-2">{s.icon}</div>
                 <div className="text-[10px] sm:text-[11px] uppercase tracking-[0.25em] text-[#B79143] font-bold mb-2">{s.label}</div>
@@ -915,7 +1223,17 @@ export default function EventManagement() {
                 <div className="rounded-xl border p-4 sm:p-5" style={{ borderColor: BORDER_GOLD, backgroundColor: CARD_BG }}>
                   <h3 className="text-lg font-bold text-[#F8F3EA] mb-4">Event Details</h3>
                   <div className="space-y-0">
-                    {[['Name', ev.name], ['Registration Opens', ev.registrationStartDate || '—'], ['Registration Closes', ev.registrationEndDate || '—'], ['Event Start', ev.startDate || ev.date], ['Event End', ev.endDate || '—'], ['Card Allotment Date', ev.cardAllotmentDate || '—'], ['Venue', ev.venue || '—'], ['Status', ev.status || 'active'], ['Entry Fees', ev.entryFees ? `${ev.currency || 'PKR'} ${Number(ev.entryFees).toLocaleString()}` : 'Not set']].map(([k, v]) => (
+                    {[
+                      ['Name', ev.name],
+                      ['Registration Opens', ev.registrationStartDate || '—'],
+                      ['Registration Closes', ev.registrationEndDate || '—'],
+                      ['Event Start', ev.startDate || ev.date],
+                      ['Event End', ev.endDate || '—'],
+                      ['Card Allotment Date', ev.cardAllotmentDate || '—'],
+                      ['Venue', ev.venue || '—'],
+                      ['Status', ev.status || 'active'],
+                      ['Entry Fees', ev.entryFees ? `${ev.currency || 'PKR'} ${Number(ev.entryFees).toLocaleString()}` : 'Not set'],
+                    ].map(([k, v]) => (
                       <div key={k} className="flex justify-between items-start py-3 px-1 gap-3 border-b last:border-b-0" style={{ borderColor: BORDER_GOLD_LIGHT }}>
                         <span className="text-[10px] uppercase tracking-wider text-[#B79143] font-bold shrink-0 mt-0.5">{k}</span>
                         <span className="text-sm font-medium text-[#F8F3EA] text-right">{v || '—'}</span>
@@ -926,17 +1244,36 @@ export default function EventManagement() {
                 <div className="rounded-xl border p-4 sm:p-5" style={{ borderColor: BORDER_GOLD, backgroundColor: CARD_BG }}>
                   <h3 className="text-lg font-bold text-[#F8F3EA] mb-4">Quick Stats</h3>
                   <div className="space-y-0">
-                    {[['Approved Delegates', evDelegates.filter(d => d.paymentStatus === 'approved').length], ['Pending Delegates', evDelegates.filter(d => d.paymentStatus === 'pending').length], ['Approved Sponsors', evSponsors.filter(s => s.paymentStatus === 'approved').length], ['Total Seats', detailTotalSeats || '∞'], ['Seats Filled', detailTotalFilled], ['Available', detailTotalSeats > 0 ? Math.max(0, detailTotalSeats - detailTotalFilled) : '∞']].map(([k, v]) => (
+                    {[
+                      ['Approved Delegates', evDelegates.filter(d => d.paymentStatus === 'approved').length],
+                      ['Pending Delegates',  evDelegates.filter(d => d.paymentStatus === 'pending').length],
+                      ['Approved Sponsors',  evSponsors.filter(s => s.paymentStatus === 'approved').length],
+                      ['Total Seats',        detailTotalSeats || '∞'],
+                      ['Seats Filled',       detailTotalFilled],
+                      ['Available',          detailTotalSeats > 0 ? Math.max(0, detailTotalSeats - detailTotalFilled) : '∞'],
+                    ].map(([k, v]) => (
                       <div key={k} className="flex justify-between items-start py-3 px-1 gap-3 border-b last:border-b-0" style={{ borderColor: BORDER_GOLD_LIGHT }}>
                         <span className="text-[10px] uppercase tracking-wider text-[#B79143] font-bold shrink-0 mt-0.5">{k}</span>
                         <span className="text-sm font-medium text-[#F8F3EA] text-right">{v}</span>
                       </div>
                     ))}
                   </div>
-                  <div className="mt-4 rounded-xl border border-blue-400/30 bg-blue-500/10 p-3 text-xs text-blue-100">💡 Seats reserved immediately on booking. Restored only on rejection.</div>
+                  <div className="mt-4 rounded-xl border border-blue-400/30 bg-blue-500/10 p-3 text-xs text-blue-100">
+                    💡 Seats reserved immediately on booking. Restored only on rejection.
+                  </div>
                 </div>
-                {ev.description && <div className="lg:col-span-2"><h4 className="text-xs uppercase tracking-wider text-[#B79143] font-bold mb-2">Description</h4><p className="text-sm text-[#b89b84] leading-relaxed">{ev.description}</p></div>}
-                {ev.imageUrl && <div className="lg:col-span-2"><h4 className="text-xs uppercase tracking-wider text-[#B79143] font-bold mb-2">Banner</h4><img src={ev.imageUrl} alt="Banner" className="w-full max-h-[200px] object-cover rounded-xl border" style={{ borderColor: BORDER_GOLD_STRONG }} /></div>}
+                {ev.description && (
+                  <div className="lg:col-span-2">
+                    <h4 className="text-xs uppercase tracking-wider text-[#B79143] font-bold mb-2">Description</h4>
+                    <p className="text-sm text-[#b89b84] leading-relaxed">{ev.description}</p>
+                  </div>
+                )}
+                {ev.imageUrl && (
+                  <div className="lg:col-span-2">
+                    <h4 className="text-xs uppercase tracking-wider text-[#B79143] font-bold mb-2">Banner</h4>
+                    <img src={ev.imageUrl} alt="Banner" className="w-full max-h-[200px] object-cover rounded-xl border" style={{ borderColor: BORDER_GOLD_STRONG }} />
+                  </div>
+                )}
               </div>
             )}
 
@@ -1021,15 +1358,20 @@ export default function EventManagement() {
                                     <div className="font-bold text-[#D7B46A] text-sm">{commObj?.abbr || resolveCommitteeName(d)}</div>
                                     {isDelegateOverbooked && <span className="inline-block mt-1 rounded-md px-1.5 py-0.5 text-[9px] uppercase tracking-[0.15em] font-bold bg-orange-500/20 text-orange-300 border border-orange-400/40">⚠️ Overbooked</span>}
                                   </td>
-
-                                  {/* Country/Personality — editable only for superAdmin */}
                                   <td className="py-4 pr-4 text-center">
                                     {canEdit && isEditingCountry ? (
                                       <div className="flex items-center justify-center gap-2">
-                                        <input className={inputCls + ' !py-2 !text-xs min-w-[140px] text-center'} value={countryPersonalityValue}
+                                        <input
+                                          className={inputCls + ' !py-2 !text-xs min-w-[140px] text-center'}
+                                          value={countryPersonalityValue}
                                           onChange={e => setCountryPersonalityValue(e.target.value)}
-                                          onKeyDown={e => { if (e.key === 'Enter') handleUpdateCountryPersonality(d.id, countryPersonalityValue); else if (e.key === 'Escape') setEditingCountryPersonality(null); }}
-                                          autoFocus placeholder="Enter country/personality" />
+                                          onKeyDown={e => {
+                                            if (e.key === 'Enter') handleUpdateCountryPersonality(d.id, countryPersonalityValue);
+                                            else if (e.key === 'Escape') setEditingCountryPersonality(null);
+                                          }}
+                                          autoFocus
+                                          placeholder="Enter country/personality"
+                                        />
                                         <button className="text-emerald-400 hover:text-emerald-300 transition" onClick={() => handleUpdateCountryPersonality(d.id, countryPersonalityValue)} title="Save">✓</button>
                                         <button className="text-red-400 hover:text-red-300 transition" onClick={() => setEditingCountryPersonality(null)} title="Cancel">✕</button>
                                       </div>
@@ -1045,7 +1387,6 @@ export default function EventManagement() {
                                       </div>
                                     )}
                                   </td>
-
                                   <td className="py-4 pr-4 text-center"><span className={statusBadge(d.paymentStatus || 'pending')}>{d.paymentStatus || 'pending'}</span></td>
                                   <td className="py-4 pr-4 text-center">
                                     <div className="text-xs text-[#b89b84]">{d.createdAt ? new Date(d.createdAt).toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</div>
@@ -1053,8 +1394,10 @@ export default function EventManagement() {
                                   </td>
                                   {canEdit && (
                                     <td className="py-4 text-center">
-                                      <button className="rounded-lg border border-emerald-400/40 bg-emerald-500/15 px-3 py-1.5 text-xs font-semibold text-emerald-300 hover:bg-emerald-500/25 transition"
-                                        onClick={() => { setReassignModal({ registration: d }); setReassignTarget(''); }}>
+                                      <button
+                                        className="rounded-lg border border-emerald-400/40 bg-emerald-500/15 px-3 py-1.5 text-xs font-semibold text-emerald-300 hover:bg-emerald-500/25 transition"
+                                        onClick={() => { setReassignModal({ registration: d }); setReassignTarget(''); }}
+                                      >
                                         🔄 Reassign
                                       </button>
                                     </td>
@@ -1132,25 +1475,49 @@ export default function EventManagement() {
                 {evComms.length === 0
                   ? <p className="text-[#b89b84] text-sm py-8 text-center col-span-full">No committees added.</p>
                   : evComms.map(c => {
-                    const filled    = c.filledSeats || 0;
-                    const total     = getCommSeats(c);
-                    const pct       = total > 0 ? Math.min(100, Math.round((filled / total) * 100)) : 0;
-                    const full      = total > 0 && filled >= total;
+                    const filled     = c.filledSeats || 0;
+                    const total      = getCommSeats(c);
+                    const pct        = total > 0 ? Math.min(100, Math.round((filled / total) * 100)) : 0;
+                    const full       = total > 0 && filled >= total;
                     const overbooked = total > 0 && filled > total;
                     return (
-                      <div key={c.id} className={`rounded-xl border p-4 transition-all ${overbooked ? 'border-orange-400/30 bg-[rgba(120,53,15,0.2)]' : ''}`} style={!overbooked ? { borderColor: BORDER_GOLD, backgroundColor: CARD_BG } : {}}>
-                        <div className="flex items-start justify-between mb-1">
-                          <div>
-                            {c.abbr && <div className="text-xs font-bold text-[#B79143] uppercase tracking-wider mb-0.5">{c.abbr}</div>}
-                            <h4 className="font-bold text-[#F8F3EA] text-sm">{c.name}</h4>
-                          </div>
-                          <div className="flex gap-1.5 flex-wrap justify-end ml-2">
-                            {overbooked && <span className="inline-block rounded-lg px-2 py-0.5 text-[9px] uppercase tracking-[0.15em] font-bold bg-orange-500/20 text-orange-300 border border-orange-400/40 whitespace-nowrap">⚠️ Over</span>}
-                            {full && !overbooked && <span className="inline-block rounded-lg px-2 py-0.5 text-[9px] uppercase tracking-[0.15em] font-bold bg-red-500/15 text-red-300 border border-red-400/30">Full</span>}
+                      <div
+                        key={c.id}
+                        className={`rounded-xl border p-4 transition-all ${overbooked ? 'border-orange-400/30 bg-[rgba(120,53,15,0.2)]' : ''}`}
+                        style={!overbooked ? { borderColor: BORDER_GOLD, backgroundColor: CARD_BG } : {}}
+                      >
+                        {/* Header: logo + abbr */}
+                        <div className="flex items-center gap-2 pb-3 mb-3" style={{ borderBottom: '2px solid #B79143' }}>
+                          {c.logoUrl ? (
+                            <img
+                              src={c.logoUrl}
+                              alt={`${c.name} logo`}
+                              className="w-8 h-8 rounded-lg object-contain shrink-0 border"
+                              style={{ background: 'rgba(183,145,67,0.1)', borderColor: 'rgba(183,145,67,0.3)' }}
+                            />
+                          ) : (
+                            <div
+                              className="w-8 h-8 rounded-lg flex items-center justify-center text-[10px] font-bold shrink-0 border"
+                              style={{ color: '#B79143', background: 'rgba(183,145,67,0.1)', borderColor: 'rgba(183,145,67,0.3)' }}
+                            >
+                              {(c.abbr || c.name)?.slice(0, 2)?.toUpperCase()}
+                            </div>
+                          )}
+                          <div className="flex items-start justify-between flex-1 min-w-0">
+                            <div>
+                              {c.abbr && <div className="text-xs font-bold text-[#B79143] uppercase tracking-wider">{c.abbr}</div>}
+                            </div>
+                            <div className="flex gap-1.5 flex-wrap justify-end ml-2">
+                              {overbooked && <span className="inline-block rounded-lg px-2 py-0.5 text-[9px] uppercase tracking-[0.15em] font-bold bg-orange-500/20 text-orange-300 border border-orange-400/40 whitespace-nowrap">⚠️ Over</span>}
+                              {full && !overbooked && <span className="inline-block rounded-lg px-2 py-0.5 text-[9px] uppercase tracking-[0.15em] font-bold bg-red-500/15 text-red-300 border border-red-400/30">Full</span>}
+                            </div>
                           </div>
                         </div>
+
+                        <h4 className="font-bold text-[#F8F3EA] text-sm mb-1">{c.name}</h4>
                         {c.topic && <p className="text-xs text-[#D7B46A] mb-2 italic leading-snug">{c.topic}</p>}
                         {c.description && <p className="text-xs text-[#b89b84] mb-3">{c.description}</p>}
+
                         <div className="flex justify-between mb-2">
                           <span className="text-xs text-[#b89b84]">Filled</span>
                           <span className={`text-xs font-bold ${overbooked ? 'text-orange-400' : 'text-[#D7B46A]'}`}>
@@ -1206,7 +1573,7 @@ export default function EventManagement() {
             )}
           </div>
 
-          {/* ── Reassign Modal — superAdmin only ── */}
+          {/* ── Reassign Modal ── */}
           {reassignModal && canEdit && (
             <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/85 p-4 backdrop-blur-sm" onClick={e => e.target === e.currentTarget && setReassignModal(null)}>
               <div className="w-full max-w-md rounded-2xl border shadow-2xl max-h-[90vh] overflow-y-auto" style={{ borderColor: BORDER_GOLD_STRONG, backgroundColor: BG_COLOR }}>
@@ -1223,18 +1590,21 @@ export default function EventManagement() {
                     <label className={labelCls}>Select New Committee</label>
                     <select className={inputCls + ' appearance-none'} value={reassignTarget} onChange={e => setReassignTarget(e.target.value)}>
                       <option value="">Choose a committee…</option>
-                      {committees.filter(c => c.eventId === selectedEvent?.id && c.id !== reassignModal.registration.committee).map(c => {
-                        const filled = c.filledSeats || 0;
-                        const total  = getCommSeats(c);
-                        const isFull = total > 0 && filled >= total;
-                        const isOverbookedComm = total > 0 && filled > total;
-                        return (
-                          <option key={c.id} value={c.id}>
-                            {c.abbr ? `${c.abbr} — ` : ''}{c.name} — {filled}/{total || '∞'} seats
-                            {isOverbookedComm ? ' ⚠️ OVERBOOKED' : isFull ? ' (FULL)' : ''}
-                          </option>
-                        );
-                      })}
+                      {committees
+                        .filter(c => c.eventId === selectedEvent?.id && c.id !== reassignModal.registration.committee)
+                        .map(c => {
+                          const filled = c.filledSeats || 0;
+                          const total  = getCommSeats(c);
+                          const isFull = total > 0 && filled >= total;
+                          const isOverbookedComm = total > 0 && filled > total;
+                          return (
+                            <option key={c.id} value={c.id}>
+                              {c.abbr ? `${c.abbr} — ` : ''}{c.name} — {filled}/{total || '∞'} seats
+                              {isOverbookedComm ? ' ⚠️ OVERBOOKED' : isFull ? ' (FULL)' : ''}
+                            </option>
+                          );
+                        })
+                      }
                     </select>
                   </div>
                   {reassignTarget && (() => {
@@ -1252,8 +1622,11 @@ export default function EventManagement() {
                 </div>
                 <div className="sticky bottom-0 flex gap-3 justify-end px-6 py-5 border-t" style={{ borderColor: BORDER_GOLD_STRONG, backgroundColor: BG_COLOR }}>
                   <button className="rounded-xl border px-5 py-2.5 text-sm font-semibold text-[#B79143] transition hover:bg-[#B79143]/10" style={{ borderColor: BORDER_GOLD_MEDIUM }} onClick={() => setReassignModal(null)}>Cancel</button>
-                  <button className="rounded-xl bg-gradient-to-r from-[#8E6B2F] via-[#B79143] to-[#D7B46A] px-5 py-2.5 text-sm font-semibold text-[#2A0B12] transition hover:scale-[1.02] disabled:opacity-50"
-                    onClick={handleReassign} disabled={!reassignTarget || reassigning}>
+                  <button
+                    className="rounded-xl bg-gradient-to-r from-[#8E6B2F] via-[#B79143] to-[#D7B46A] px-5 py-2.5 text-sm font-semibold text-[#2A0B12] transition hover:scale-[1.02] disabled:opacity-50"
+                    onClick={handleReassign}
+                    disabled={!reassignTarget || reassigning}
+                  >
                     {reassigning ? 'Reassigning…' : '✅ Confirm'}
                   </button>
                 </div>
@@ -1279,12 +1652,14 @@ export default function EventManagement() {
             <p className="text-sm text-[#b89b84] mt-2">{events.length} event{events.length !== 1 ? 's' : ''} total</p>
           </div>
           {canEdit && (
-            <button className="rounded-xl bg-gradient-to-r from-[#8E6B2F] via-[#B79143] to-[#D7B46A] px-5 py-3 text-sm font-semibold text-[#2A0B12] transition hover:scale-[1.02] w-full sm:w-auto" onClick={openCreate}>
+            <button
+              className="rounded-xl bg-gradient-to-r from-[#8E6B2F] via-[#B79143] to-[#D7B46A] px-5 py-3 text-sm font-semibold text-[#2A0B12] transition hover:scale-[1.02] w-full sm:w-auto"
+              onClick={openCreate}
+            >
               + Create Event
             </button>
           )}
         </div>
-
 
         {loading ? (
           <div className="flex justify-center items-center min-h-[300px]">
@@ -1304,13 +1679,17 @@ export default function EventManagement() {
             {events.map(ev => {
               const evRegs = registrations.filter(r => r.eventId === ev.id);
               const { evComms, totalSeats, totalFilled } = eventSeatTotals(ev.id);
-              const seatPct    = totalSeats > 0 ? Math.min(100, Math.round((totalFilled / totalSeats) * 100)) : 0;
-              const isFull     = totalSeats > 0 && totalFilled >= totalSeats;
+              const seatPct      = totalSeats > 0 ? Math.min(100, Math.round((totalFilled / totalSeats) * 100)) : 0;
+              const isFull       = totalSeats > 0 && totalFilled >= totalSeats;
               const isOverbooked = totalSeats > 0 && totalFilled > totalSeats;
-              const banner     = ev.imageUrl || DEFAULT_BANNER;
+              const banner       = ev.imageUrl || DEFAULT_BANNER;
               return (
-                <div key={ev.id} className="rounded-2xl overflow-hidden border backdrop-blur-md transition-all duration-300 hover:scale-[1.02] hover:shadow-xl hover:shadow-[#B79143]/5 cursor-pointer flex flex-col"
-                  style={{ borderColor: BORDER_GOLD, backgroundColor: PANEL_BG }} onClick={() => openDetail(ev)}>
+                <div
+                  key={ev.id}
+                  className="rounded-2xl overflow-hidden border backdrop-blur-md transition-all duration-300 hover:scale-[1.02] hover:shadow-xl hover:shadow-[#B79143]/5 cursor-pointer flex flex-col"
+                  style={{ borderColor: BORDER_GOLD, backgroundColor: PANEL_BG }}
+                  onClick={() => openDetail(ev)}
+                >
                   <div className="relative h-44 sm:h-48 overflow-hidden">
                     <img src={banner} alt={ev.name} className="w-full h-full object-cover transition-transform duration-500 hover:scale-110" onError={e => { e.target.src = DEFAULT_BANNER; }} />
                     <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-[rgba(68,7,19,0.9)]" />
@@ -1351,7 +1730,6 @@ export default function EventManagement() {
                       {ev.easyPaisa  && <span className="rounded-lg border px-2 py-1 text-[0.6rem] text-[#B79143]" style={{ borderColor: BORDER_GOLD_MEDIUM, backgroundColor: 'rgba(183,145,67,0.08)' }}>💚</span>}
                     </div>
                     <div className="flex-1" />
-                    {/* Action buttons — only visible to superAdmin */}
                     {canEdit && (
                       <div className="flex gap-2 pt-4 border-t" style={{ borderColor: BORDER_GOLD_LIGHT }} onClick={e => e.stopPropagation()}>
                         <button className="flex-1 rounded-xl border px-3 py-2 text-xs font-semibold text-[#B79143] hover:bg-[rgba(183,145,67,0.08)] transition" style={{ borderColor: BORDER_GOLD_MEDIUM }} onClick={() => openEdit(ev)}>✏️ Edit</button>

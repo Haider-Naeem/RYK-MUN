@@ -49,7 +49,7 @@ export default function FooterSection({ onNavigate }) {
         </div>
         
         <div className="w-full max-w-[220px] h-px" style={{ background: 'linear-gradient(90deg, transparent, rgba(183,145,67,0.40), transparent)' }} />
-        <div className="text-[11px] sm:text-xs tracking-wide" style={{ color: '#8c6d62' }}>✉ rykmun2@gmail.com · 📍 Rahim Yar Khan, Punjab, Pakistan</div>
+        <div className="text-[11px] sm:text-xs tracking-wide" style={{ color: '#8c6d62' }}>✉ rykmun.26@gmail.com · 📍 Rahim Yar Khan, Punjab, Pakistan</div>
         <div className="text-[10px] tracking-[0.12em]" style={{ color: 'rgba(160,120,90,0.65)' }}>© 2025 RYK MUN · All Rights Reserved</div>
       </div>
     </footer>
