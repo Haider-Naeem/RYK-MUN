@@ -26,36 +26,41 @@ const BORDER_GOLD_STRONG = 'rgba(183,145,67,0.3)';
 
 const COLORS = ['#C9A84C', '#D7B46A', '#E8C97A', '#8E6B2F', '#FF6B6B', '#FFA500'];
 const EXPENSE_CATEGORIES = ['Venue', 'Catering', 'Marketing', 'Technology', 'Printing', 'Transport', 'Honorarium', 'Decoration', 'Security', 'General'];
+const INCOME_CATEGORIES = ['Sponsorship', 'Grants', 'Merchandise', 'Donations', 'Registration Bonus', 'Partnership', 'Government Funding', 'Other'];
 
 const inputCls = 'w-full rounded-xl border border-[rgba(183,145,67,0.25)] bg-[rgba(0,0,0,0.4)] backdrop-blur-sm px-4 py-3.5 text-sm text-[#F8F3EA] placeholder:text-[#b89b84] focus:border-[#B79143] focus:outline-none focus:ring-2 focus:ring-[#B79143]/20 transition-all duration-300';
 const labelCls = 'mb-2 block text-[0.7rem] font-bold uppercase tracking-[0.2em] text-[#B79143]';
 
-const emptyExpenseForm = { description: '', amount: '', category: '', eventId: '' };
+const emptyForm = { description: '', amount: '', category: '', eventId: '' };
 
 export default function Financials() {
   const { canEdit } = usePermissions();
 
   const [payments,         setPayments]         = useState([]);
-  const [expenses,         setExpenses]         = useState([]);
+  const [financials,       setFinancials]       = useState([]);   // all rows from financials table
   const [events,           setEvents]           = useState([]);
   const [loading,          setLoading]          = useState(true);
   const [filterEvent,      setFilterEvent]      = useState('all');
+
+  // shared modal state — modalType: 'expense' | 'income'
   const [showModal,        setShowModal]        = useState(false);
-  const [editingExpenseId, setEditingExpenseId] = useState(null);
-  const [expenseForm,      setExpenseForm]      = useState(emptyExpenseForm);
-  const [savingExpense,    setSavingExpense]    = useState(false);
+  const [modalType,        setModalType]        = useState('expense');
+  const [editingId,        setEditingId]        = useState(null);
+  const [form,             setForm]             = useState(emptyForm);
+  const [saving,           setSaving]           = useState(false);
+
   const [activeTab,        setActiveTab]        = useState('overview');
 
   useEffect(() => {
     async function load() {
       try {
-        const [{ data: pays }, { data: exps }, { data: evs }] = await Promise.all([
+        const [{ data: pays }, { data: fins }, { data: evs }] = await Promise.all([
           supabase.from('payments').select('*'),
           supabase.from('financials').select('*').order('created_at', { ascending: false }),
           supabase.from('events').select('*'),
         ]);
         setPayments(keysToCamel(pays || []));
-        setExpenses(keysToCamel(exps || []));
+        setFinancials(keysToCamel(fins || []));
         setEvents(keysToCamel(evs || []));
       } catch (e) { console.error(e); }
       finally { setLoading(false); }
@@ -63,37 +68,49 @@ export default function Financials() {
     load();
   }, []);
 
+  // ── Derived slices ──────────────────────────────────────────────
   const filtPays = filterEvent === 'all' ? payments : payments.filter(p => p.eventId === filterEvent);
-  const filtExps = filterEvent === 'all' ? expenses : expenses.filter(e => e.eventId === filterEvent);
+  const filtFins = filterEvent === 'all' ? financials : financials.filter(f => f.eventId === filterEvent);
+
+  const expenses     = filtFins.filter(f => f.incomeType !== 'income');   // 'expense' or null (legacy)
+  const otherIncomes = filtFins.filter(f => f.incomeType === 'income');
 
   const approved      = filtPays.filter(p => p.status === 'approved');
   const refunded      = filtPays.filter(p => p.status === 'refunded');
-  const totalRev      = approved.reduce((s, p) => s + (p.amount || 0), 0);
+  const totalPayRev   = approved.reduce((s, p) => s + (p.amount || 0), 0);
   const delegateRev   = approved.filter(p => p.registrationType === 'delegate').reduce((s, p) => s + (p.amount || 0), 0);
   const sponsorRev    = approved.filter(p => p.registrationType === 'sponsor').reduce((s, p) => s + (p.amount || 0), 0);
   const totalRefunded = refunded.reduce((s, p) => s + (p.amount || 0), 0);
-  const totalExp      = filtExps.reduce((s, e) => s + (e.amount || 0), 0);
+  const totalOtherInc = otherIncomes.reduce((s, f) => s + (f.amount || 0), 0);
+  const totalRev      = totalPayRev + totalOtherInc;
+  const totalExp      = expenses.reduce((s, e) => s + (e.amount || 0), 0);
   const netProfit     = totalRev - totalExp;
 
+  // ── Bar chart: per-event breakdown ──────────────────────────────
   const byEvent = events.map(ev => {
     const evPays = payments.filter(p => p.status === 'approved' && p.eventId === ev.id);
-    const evExp  = expenses.filter(e => e.eventId === ev.id);
+    const evExp  = financials.filter(f => f.eventId === ev.id && f.incomeType !== 'income');
+    const evInc  = financials.filter(f => f.eventId === ev.id && f.incomeType === 'income');
     return {
-      name:      ev.name.length > 12 ? ev.name.slice(0, 12) + '…' : ev.name,
-      Delegates: evPays.filter(p => p.registrationType === 'delegate').reduce((s, p) => s + (p.amount || 0), 0),
-      Sponsors:  evPays.filter(p => p.registrationType === 'sponsor').reduce((s, p) => s + (p.amount || 0), 0),
-      Expenses:  evExp.reduce((s, e) => s + (e.amount || 0), 0),
+      name:         ev.name.length > 12 ? ev.name.slice(0, 12) + '…' : ev.name,
+      Delegates:    evPays.filter(p => p.registrationType === 'delegate').reduce((s, p) => s + (p.amount || 0), 0),
+      Sponsors:     evPays.filter(p => p.registrationType === 'sponsor').reduce((s, p) => s + (p.amount || 0), 0),
+      'Other Income': evInc.reduce((s, f) => s + (f.amount || 0), 0),
+      Expenses:     evExp.reduce((s, e) => s + (e.amount || 0), 0),
     };
   });
 
+  // ── Pie chart ────────────────────────────────────────────────────
   const revPie = [
     { name: 'Delegate Revenue', value: delegateRev },
     { name: 'Sponsor Revenue',  value: sponsorRev },
+    { name: 'Other Income',     value: totalOtherInc },
     { name: 'Total Expenses',   value: totalExp },
   ].filter(d => d.value > 0);
 
+  // ── Expense by category ─────────────────────────────────────────
   const expByCategory = {};
-  filtExps.forEach(e => {
+  expenses.forEach(e => {
     const c = e.category || 'General';
     expByCategory[c] = (expByCategory[c] || 0) + (e.amount || 0);
   });
@@ -101,73 +118,90 @@ export default function Financials() {
     .map(([name, value]) => ({ name, value }))
     .sort((a, b) => b.value - a.value);
 
-  async function handleSaveExpense() {
-    if (!canEdit) return;
-    if (!expenseForm.description || !expenseForm.amount) {
-      toast.error('Description and amount are required'); return;
-    }
-    setSavingExpense(true);
-    try {
-      const eventName = events.find(e => e.id === expenseForm.eventId)?.name || '';
-      const row = {
-        description: expenseForm.description,
-        amount:      parseFloat(expenseForm.amount),
-        category:    expenseForm.category || 'General',
-        event_id:    expenseForm.eventId || null,
-        event_name:  eventName,
-      };
-      if (editingExpenseId) {
-        const { data, error } = await supabase.from('financials').update(row).eq('id', editingExpenseId).select().single();
-        if (error) throw error;
-        setExpenses(prev => prev.map(x => x.id === editingExpenseId ? keysToCamel(data) : x));
-        toast.success('Expense updated');
-      } else {
-        const { data, error } = await supabase.from('financials').insert(row).select().single();
-        if (error) throw error;
-        setExpenses(prev => [keysToCamel(data), ...prev]);
-        toast.success('Expense recorded');
-      }
-      setExpenseForm(emptyExpenseForm);
-      setEditingExpenseId(null);
-      setShowModal(false);
-    } catch { toast.error(editingExpenseId ? 'Failed to update expense' : 'Failed to save expense'); }
-    finally { setSavingExpense(false); }
-  }
+  // ── Income by category ──────────────────────────────────────────
+  const incByCategory = {};
+  otherIncomes.forEach(f => {
+    const c = f.category || 'Other';
+    incByCategory[c] = (incByCategory[c] || 0) + (f.amount || 0);
+  });
+  const incCatData = Object.entries(incByCategory)
+    .map(([name, value]) => ({ name, value }))
+    .sort((a, b) => b.value - a.value);
 
-  function openAddExpenseModal() {
+  // ── Modal helpers ────────────────────────────────────────────────
+  function openAddModal(type) {
     if (!canEdit) return;
-    setEditingExpenseId(null);
-    setExpenseForm(emptyExpenseForm);
+    setModalType(type);
+    setEditingId(null);
+    setForm(emptyForm);
     setShowModal(true);
   }
 
-  function openEditExpenseModal(e) {
+  function openEditModal(row, type) {
     if (!canEdit) return;
-    setEditingExpenseId(e.id);
-    setExpenseForm({
-      description: e.description || '',
-      amount:      e.amount != null ? String(e.amount) : '',
-      category:    e.category || '',
-      eventId:     e.eventId || '',
+    setModalType(type);
+    setEditingId(row.id);
+    setForm({
+      description: row.description || '',
+      amount:      row.amount != null ? String(row.amount) : '',
+      category:    row.category || '',
+      eventId:     row.eventId || '',
     });
     setShowModal(true);
   }
 
-  function closeExpenseModal() {
+  function closeModal() {
     setShowModal(false);
-    setEditingExpenseId(null);
-    setExpenseForm(emptyExpenseForm);
+    setEditingId(null);
+    setForm(emptyForm);
   }
 
-  async function handleDeleteExpense(exp) {
+  async function handleSave() {
     if (!canEdit) return;
-    if (!window.confirm(`Delete expense "${exp.description}" (${formatCurrency(exp.amount)})?`)) return;
+    if (!form.description || !form.amount) {
+      toast.error('Description and amount are required'); return;
+    }
+    setSaving(true);
     try {
-      const { error } = await supabase.from('financials').delete().eq('id', exp.id);
+      const eventName = events.find(e => e.id === form.eventId)?.name || '';
+      const row = {
+        description:  form.description,
+        amount:       parseFloat(form.amount),
+        category:     form.category || (modalType === 'income' ? 'Other' : 'General'),
+        event_id:     form.eventId || null,
+        event_name:   eventName,
+        income_type:  modalType,                    // 'expense' | 'income'
+      };
+
+      if (editingId) {
+        const { data, error } = await supabase.from('financials').update(row).eq('id', editingId).select().single();
+        if (error) throw error;
+        setFinancials(prev => prev.map(x => x.id === editingId ? keysToCamel(data) : x));
+        toast.success(modalType === 'income' ? 'Income updated' : 'Expense updated');
+      } else {
+        const { data, error } = await supabase.from('financials').insert(row).select().single();
+        if (error) throw error;
+        setFinancials(prev => [keysToCamel(data), ...prev]);
+        toast.success(modalType === 'income' ? 'Income recorded' : 'Expense recorded');
+      }
+      closeModal();
+    } catch {
+      toast.error(editingId ? 'Failed to update' : 'Failed to save');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDelete(row, type) {
+    if (!canEdit) return;
+    const label = type === 'income' ? 'income entry' : 'expense';
+    if (!window.confirm(`Delete ${label} "${row.description}" (${formatCurrency(row.amount)})?`)) return;
+    try {
+      const { error } = await supabase.from('financials').delete().eq('id', row.id);
       if (error) throw error;
-      setExpenses(prev => prev.filter(x => x.id !== exp.id));
-      toast.success('Expense deleted');
-    } catch { toast.error('Failed to delete expense'); }
+      setFinancials(prev => prev.filter(x => x.id !== row.id));
+      toast.success(type === 'income' ? 'Income deleted' : 'Expense deleted');
+    } catch { toast.error('Failed to delete'); }
   }
 
   const selectedEventName = filterEvent !== 'all'
@@ -199,8 +233,111 @@ export default function Financials() {
   const tabs = [
     { key: 'overview', label: 'Overview Charts' },
     { key: 'payments', label: `Payments (${approved.length})` },
-    { key: 'expenses', label: `Expenses (${filtExps.length})` },
+    { key: 'expenses', label: `Expenses (${expenses.length})` },
+    { key: 'income',   label: `Other Income (${otherIncomes.length})` },
   ];
+
+  // ── Shared table/card renderers ──────────────────────────────────
+  function renderFinancialRow(row, type) {
+    const isIncome = type === 'income';
+    return (
+      <tr key={row.id} className="border-b hover:bg-[rgba(183,145,67,0.04)] transition" style={{ borderColor: BORDER_GOLD_LIGHT }}>
+        <td className="py-4 pr-4 font-semibold text-[#F8F3EA]">{row.description}</td>
+        <td className="py-4 pr-4">
+          <span className={`inline-block rounded-lg px-2.5 py-1 text-[10px] uppercase tracking-[0.15em] font-bold border ${
+            isIncome
+              ? 'bg-emerald-500/15 text-emerald-300 border-emerald-400/30'
+              : 'bg-amber-500/15 text-amber-300 border-amber-400/30'
+          }`}>
+            {row.category}
+          </span>
+        </td>
+        <td className="py-4 pr-4 text-[#b89b84] text-xs">{row.eventName || 'General'}</td>
+        <td className={`py-4 pr-4 font-bold ${isIncome ? 'text-emerald-400' : 'text-[#FF6B6B]'}`}>
+          {isIncome ? '+' : '-'}{formatCurrency(row.amount)}
+        </td>
+        <td className="py-4 pr-4 text-[#b89b84] text-xs">{formatDate(row.createdAt)}</td>
+        {canEdit && (
+          <td className="py-4">
+            <div className="flex gap-1.5">
+              <button className="rounded-lg border border-emerald-400/40 bg-emerald-500/15 px-3 py-1.5 text-xs font-semibold text-emerald-300 hover:bg-emerald-500/25 transition" onClick={() => openEditModal(row, type)}>Edit</button>
+              <button className="rounded-lg border border-red-400/40 bg-red-500/15 px-3 py-1.5 text-xs font-semibold text-red-300 hover:bg-red-500/25 transition" onClick={() => handleDelete(row, type)}>Delete</button>
+            </div>
+          </td>
+        )}
+      </tr>
+    );
+  }
+
+  function renderFinancialCard(row, type) {
+    const isIncome = type === 'income';
+    return (
+      <div key={row.id} className="rounded-xl border backdrop-blur-sm p-4" style={{ borderColor: BORDER_GOLD, backgroundColor: CARD_BG }}>
+        <div className="flex items-start justify-between mb-3">
+          <h4 className="font-semibold text-[#F8F3EA] text-sm">{row.description}</h4>
+          <span className={`inline-block rounded-lg px-2.5 py-1 text-[10px] uppercase tracking-[0.15em] font-bold border shrink-0 ${
+            isIncome
+              ? 'bg-emerald-500/15 text-emerald-300 border-emerald-400/30'
+              : 'bg-amber-500/15 text-amber-300 border-amber-400/30'
+          }`}>
+            {row.category}
+          </span>
+        </div>
+        <div className="grid grid-cols-2 gap-2 text-sm mb-3">
+          <div>
+            <p className="text-[10px] uppercase tracking-wider text-[#B79143] mb-1">Event</p>
+            <p className="text-[#b89b84] text-xs">{row.eventName || 'General'}</p>
+          </div>
+          <div>
+            <p className="text-[10px] uppercase tracking-wider text-[#B79143] mb-1">Amount</p>
+            <p className={`font-bold ${isIncome ? 'text-emerald-400' : 'text-[#FF6B6B]'}`}>
+              {isIncome ? '+' : '-'}{formatCurrency(row.amount)}
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center justify-between pt-3 border-t" style={{ borderColor: BORDER_GOLD_LIGHT }}>
+          <span className="text-xs text-[#b89b84]">{formatDate(row.createdAt)}</span>
+          {canEdit && (
+            <div className="flex gap-1.5">
+              <button className="rounded-lg border border-emerald-400/40 bg-emerald-500/15 px-3 py-1.5 text-xs font-semibold text-emerald-300 hover:bg-emerald-500/25 transition" onClick={() => openEditModal(row, type)}>Edit</button>
+              <button className="rounded-lg border border-red-400/40 bg-red-500/15 px-3 py-1.5 text-xs font-semibold text-red-300 hover:bg-red-500/25 transition" onClick={() => handleDelete(row, type)}>Delete</button>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  function renderFinancialTable(rows, type) {
+    const isIncome = type === 'income';
+    const emptyMsg = isIncome ? 'No other income recorded.' : 'No expenses recorded.';
+    return rows.length === 0 ? (
+      <div className="text-center py-12">
+        <div className="text-4xl mb-3">{isIncome ? '💵' : '💸'}</div>
+        <p className="text-[#b89b84] text-sm">{emptyMsg}</p>
+      </div>
+    ) : (
+      <>
+        <div className="hidden md:block overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead>
+              <tr className="border-b text-left" style={{ borderColor: 'rgba(183,145,67,0.12)' }}>
+                {['Description', 'Category', 'Event', 'Amount', 'Date', canEdit ? 'Actions' : ''].filter(Boolean).map(h => (
+                  <th key={h} className="pb-4 text-[#B79143] uppercase tracking-[0.2em] text-[11px] font-bold pr-4">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(row => renderFinancialRow(row, type))}
+            </tbody>
+          </table>
+        </div>
+        <div className="md:hidden space-y-3">
+          {rows.map(row => renderFinancialCard(row, type))}
+        </div>
+      </>
+    );
+  }
 
   return (
     <div className="relative min-h-screen overflow-hidden md:pl-[272px]" style={{ backgroundColor: BG_COLOR }}>
@@ -220,16 +357,24 @@ export default function Financials() {
             </p>
           </div>
           {canEdit && (
-            <button
-              type="button"
-              className="rounded-xl bg-gradient-to-r from-[#8E6B2F] via-[#B79143] to-[#D7B46A] px-5 py-3 text-sm font-semibold text-[#2A0B12] transition hover:scale-[1.02] w-full sm:w-auto shrink-0"
-              onClick={openAddExpenseModal}
-            >
-              + Record Expense
-            </button>
+            <div className="flex gap-2 flex-wrap sm:flex-nowrap">
+              <button
+                type="button"
+                className="rounded-xl bg-gradient-to-r from-[#8E6B2F] via-[#B79143] to-[#D7B46A] px-5 py-3 text-sm font-semibold text-[#2A0B12] transition hover:scale-[1.02] w-full sm:w-auto shrink-0"
+                onClick={() => openAddModal('expense')}
+              >
+                + Record Expense
+              </button>
+              <button
+                type="button"
+                className="rounded-xl border px-5 py-3 text-sm font-semibold text-emerald-300 border-emerald-400/40 bg-emerald-500/10 hover:bg-emerald-500/20 transition hover:scale-[1.02] w-full sm:w-auto shrink-0"
+                onClick={() => openAddModal('income')}
+              >
+                + Add Income
+              </button>
+            </div>
           )}
         </div>
-
 
         {/* Event Filter */}
         <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 mb-6">
@@ -266,8 +411,8 @@ export default function Financials() {
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-5 mb-6">
           {[
             { label: 'Total Expenses',    value: formatCurrency(totalExp),                              icon: '💸', color: '#FF6B6B' },
+            { label: 'Other Income',      value: formatCurrency(totalOtherInc),                         icon: '💵', color: '#5CCC8A' },
             { label: 'Total Refunded',    value: formatCurrency(totalRefunded),                         icon: '🔄', color: '#FF6B6B' },
-            { label: 'Pending Payments',  value: filtPays.filter(p => p.status === 'pending').length,   icon: '⏳', color: '#F39C12' },
             { label: 'Approved Payments', value: approved.length,                                       icon: '✅', color: '#5CCC8A' },
           ].map((s, i) => (
             <div key={i} className="rounded-2xl border backdrop-blur-xl p-4 sm:p-5 transition-all duration-300 hover:scale-[1.02] hover:shadow-lg hover:shadow-[#B79143]/5" style={{ borderColor: BORDER_GOLD, backgroundColor: PANEL_BG }}>
@@ -294,18 +439,20 @@ export default function Financials() {
         {activeTab === 'overview' && (
           <div className="space-y-6">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Bar Chart */}
               <div className="rounded-2xl border backdrop-blur-xl p-4 sm:p-6" style={{ borderColor: BORDER_GOLD, backgroundColor: PANEL_BG }}>
                 <h3 className="text-lg font-bold text-[#F8F3EA] mb-4">Revenue vs Expenses by Event</h3>
-                {byEvent.some(e => e.Delegates + e.Sponsors + e.Expenses > 0) ? (
+                {byEvent.some(e => e.Delegates + e.Sponsors + e['Other Income'] + e.Expenses > 0) ? (
                   <ResponsiveContainer width="100%" height={250}>
                     <BarChart data={byEvent}>
                       <XAxis dataKey="name" stroke="#9A7B28" tick={{ fill: '#b89b84', fontSize: 10 }} />
                       <YAxis stroke="#9A7B28" tick={{ fill: '#b89b84', fontSize: 10 }} tickFormatter={v => `${(v / 1000).toFixed(0)}k`} />
                       <Tooltip contentStyle={{ background: 'rgba(68,7,19,0.95)', border: '1px solid rgba(183,145,67,0.3)', borderRadius: '12px', color: '#F8F3EA', fontSize: 11 }} formatter={v => formatCurrency(v)} />
                       <Legend wrapperStyle={{ color: '#F8F3EA', fontSize: 11 }} />
-                      <Bar dataKey="Delegates" fill="#C9A84C" stackId="rev" radius={[4, 4, 0, 0]} />
-                      <Bar dataKey="Sponsors"  fill="#D7B46A" stackId="rev" radius={[4, 4, 0, 0]} />
-                      <Bar dataKey="Expenses"  fill="#FF6B6B" radius={[4, 4, 0, 0]} />
+                      <Bar dataKey="Delegates"    fill="#C9A84C" stackId="rev" radius={[0, 0, 0, 0]} />
+                      <Bar dataKey="Sponsors"     fill="#D7B46A" stackId="rev" radius={[0, 0, 0, 0]} />
+                      <Bar dataKey="Other Income" fill="#5CCC8A" stackId="rev" radius={[4, 4, 0, 0]} />
+                      <Bar dataKey="Expenses"     fill="#FF6B6B" radius={[4, 4, 0, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
                 ) : (
@@ -313,6 +460,7 @@ export default function Financials() {
                 )}
               </div>
 
+              {/* Pie Chart */}
               <div className="rounded-2xl border backdrop-blur-xl p-4 sm:p-6" style={{ borderColor: BORDER_GOLD, backgroundColor: PANEL_BG }}>
                 <h3 className="text-lg font-bold text-[#F8F3EA] mb-4">Revenue & Expense Breakdown</h3>
                 {revPie.length > 0 ? (
@@ -331,6 +479,7 @@ export default function Financials() {
               </div>
             </div>
 
+            {/* Expense by Category */}
             {expCatData.length > 0 && (
               <div className="rounded-2xl border backdrop-blur-xl p-4 sm:p-6" style={{ borderColor: BORDER_GOLD, backgroundColor: PANEL_BG }}>
                 <h3 className="text-lg font-bold text-[#F8F3EA] mb-4">Expenses by Category</h3>
@@ -373,6 +522,56 @@ export default function Financials() {
                           <div className="h-full rounded-full bg-gradient-to-r from-red-600 to-red-400" style={{ width: `${(c.value / totalExp) * 100}%` }} />
                         </div>
                         <span className="text-xs text-[#b89b84]">{((c.value / totalExp) * 100).toFixed(1)}%</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Other Income by Category */}
+            {incCatData.length > 0 && (
+              <div className="rounded-2xl border backdrop-blur-xl p-4 sm:p-6" style={{ borderColor: BORDER_GOLD, backgroundColor: PANEL_BG }}>
+                <h3 className="text-lg font-bold text-[#F8F3EA] mb-4">Other Income by Category</h3>
+                <div className="hidden md:block overflow-x-auto">
+                  <table className="min-w-full text-sm">
+                    <thead>
+                      <tr className="border-b text-left" style={{ borderColor: 'rgba(183,145,67,0.12)' }}>
+                        {['Category', 'Total Amount', '% of Other Income'].map(h => (
+                          <th key={h} className="pb-4 text-[#B79143] uppercase tracking-[0.2em] text-[11px] font-bold pr-4">{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {incCatData.map(c => (
+                        <tr key={c.name} className="border-b hover:bg-[rgba(183,145,67,0.04)] transition" style={{ borderColor: BORDER_GOLD_LIGHT }}>
+                          <td className="py-4 pr-4 text-[#F8F3EA]">{c.name}</td>
+                          <td className="py-4 pr-4 text-emerald-400 font-semibold">+{formatCurrency(c.value)}</td>
+                          <td className="py-4 pr-4">
+                            <div className="flex items-center gap-3">
+                              <div className="h-2 w-24 sm:w-32 rounded-full bg-[rgba(183,145,67,0.1)] overflow-hidden">
+                                <div className="h-full rounded-full bg-gradient-to-r from-emerald-700 to-emerald-400" style={{ width: `${(c.value / totalOtherInc) * 100}%` }} />
+                              </div>
+                              <span className="text-xs text-[#b89b84]">{((c.value / totalOtherInc) * 100).toFixed(1)}%</span>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="md:hidden space-y-3">
+                  {incCatData.map(c => (
+                    <div key={c.name} className="rounded-xl border backdrop-blur-sm p-4" style={{ borderColor: BORDER_GOLD, backgroundColor: CARD_BG }}>
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="font-semibold text-[#F8F3EA] text-sm">{c.name}</span>
+                        <span className="text-emerald-400 font-bold text-sm">+{formatCurrency(c.value)}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="flex-1 h-2 rounded-full bg-[rgba(183,145,67,0.1)] overflow-hidden">
+                          <div className="h-full rounded-full bg-gradient-to-r from-emerald-700 to-emerald-400" style={{ width: `${(c.value / totalOtherInc) * 100}%` }} />
+                        </div>
+                        <span className="text-xs text-[#b89b84]">{((c.value / totalOtherInc) * 100).toFixed(1)}%</span>
                       </div>
                     </div>
                   ))}
@@ -460,136 +659,133 @@ export default function Financials() {
                   type="button"
                   className="rounded-xl border px-4 py-2.5 text-sm font-semibold text-[#B79143] hover:bg-[rgba(183,145,67,0.08)] transition w-full sm:w-auto text-center"
                   style={{ borderColor: BORDER_GOLD_MEDIUM }}
-                  onClick={openAddExpenseModal}
+                  onClick={() => openAddModal('expense')}
                 >
                   + Add Expense
                 </button>
               )}
             </div>
-
-            {filtExps.length === 0 ? (
-              <div className="text-center py-12">
-                <div className="text-4xl mb-3">💸</div>
-                <p className="text-[#b89b84] text-sm">No expenses recorded.</p>
-              </div>
-            ) : (
-              <>
-                {/* Desktop Table */}
-                <div className="hidden md:block overflow-x-auto">
-                  <table className="min-w-full text-sm">
-                    <thead>
-                      <tr className="border-b text-left" style={{ borderColor: 'rgba(183,145,67,0.12)' }}>
-                        {['Description', 'Category', 'Event', 'Amount', 'Date', canEdit ? 'Actions' : ''].filter(Boolean).map(h => (
-                          <th key={h} className="pb-4 text-[#B79143] uppercase tracking-[0.2em] text-[11px] font-bold pr-4">{h}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filtExps.map(e => (
-                        <tr key={e.id} className="border-b hover:bg-[rgba(183,145,67,0.04)] transition" style={{ borderColor: BORDER_GOLD_LIGHT }}>
-                          <td className="py-4 pr-4 font-semibold text-[#F8F3EA]">{e.description}</td>
-                          <td className="py-4 pr-4">
-                            <span className="inline-block rounded-lg px-2.5 py-1 text-[10px] uppercase tracking-[0.15em] font-bold bg-amber-500/15 text-amber-300 border border-amber-400/30">
-                              {e.category}
-                            </span>
-                          </td>
-                          <td className="py-4 pr-4 text-[#b89b84] text-xs">{e.eventName || 'General'}</td>
-                          <td className="py-4 pr-4 text-[#FF6B6B] font-bold">-{formatCurrency(e.amount)}</td>
-                          <td className="py-4 pr-4 text-[#b89b84] text-xs">{formatDate(e.createdAt)}</td>
-                          {canEdit && (
-                            <td className="py-4">
-                              <div className="flex gap-1.5">
-                                <button className="rounded-lg border border-emerald-400/40 bg-emerald-500/15 px-3 py-1.5 text-xs font-semibold text-emerald-300 hover:bg-emerald-500/25 transition" onClick={() => openEditExpenseModal(e)}>Edit</button>
-                                <button className="rounded-lg border border-red-400/40 bg-red-500/15 px-3 py-1.5 text-xs font-semibold text-red-300 hover:bg-red-500/25 transition" onClick={() => handleDeleteExpense(e)}>Delete</button>
-                              </div>
-                            </td>
-                          )}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-
-                {/* Mobile Cards */}
-                <div className="md:hidden space-y-3">
-                  {filtExps.map(e => (
-                    <div key={e.id} className="rounded-xl border backdrop-blur-sm p-4" style={{ borderColor: BORDER_GOLD, backgroundColor: CARD_BG }}>
-                      <div className="flex items-start justify-between mb-3">
-                        <h4 className="font-semibold text-[#F8F3EA] text-sm">{e.description}</h4>
-                        <span className="inline-block rounded-lg px-2.5 py-1 text-[10px] uppercase tracking-[0.15em] font-bold bg-amber-500/15 text-amber-300 border border-amber-400/30 shrink-0">{e.category}</span>
-                      </div>
-                      <div className="grid grid-cols-2 gap-2 text-sm mb-3">
-                        <div>
-                          <p className="text-[10px] uppercase tracking-wider text-[#B79143] mb-1">Event</p>
-                          <p className="text-[#b89b84] text-xs">{e.eventName || 'General'}</p>
-                        </div>
-                        <div>
-                          <p className="text-[10px] uppercase tracking-wider text-[#B79143] mb-1">Amount</p>
-                          <p className="text-[#FF6B6B] font-bold">-{formatCurrency(e.amount)}</p>
-                        </div>
-                      </div>
-                      <div className="flex items-center justify-between pt-3 border-t" style={{ borderColor: BORDER_GOLD_LIGHT }}>
-                        <span className="text-xs text-[#b89b84]">{formatDate(e.createdAt)}</span>
-                        {canEdit && (
-                          <div className="flex gap-1.5">
-                            <button className="rounded-lg border border-emerald-400/40 bg-emerald-500/15 px-3 py-1.5 text-xs font-semibold text-emerald-300 hover:bg-emerald-500/25 transition" onClick={() => openEditExpenseModal(e)}>Edit</button>
-                            <button className="rounded-lg border border-red-400/40 bg-red-500/15 px-3 py-1.5 text-xs font-semibold text-red-300 hover:bg-red-500/25 transition" onClick={() => handleDeleteExpense(e)}>Delete</button>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </>
-            )}
+            {renderFinancialTable(expenses, 'expense')}
           </div>
         )}
 
-        {/* ── Add / Edit Expense Modal — superAdmin only ── */}
-        {showModal && canEdit && (
-          <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/85 p-4 backdrop-blur-sm" onClick={e => e.target === e.currentTarget && closeExpenseModal()}>
-            <div className="w-full max-w-[540px] rounded-2xl border shadow-2xl max-h-[90vh] overflow-y-auto" style={{ borderColor: BORDER_GOLD_STRONG, backgroundColor: BG_COLOR }}>
-              <div className="sticky top-0 flex items-center justify-between px-6 py-5 border-b" style={{ borderColor: BORDER_GOLD_STRONG, backgroundColor: BG_COLOR }}>
-                <h3 className="text-lg font-bold text-[#F8F3EA]">{editingExpenseId ? '✏️ Edit Expense' : '💸 Record Expense'}</h3>
-                <button className="rounded-lg border px-3 py-1.5 text-sm text-[#B79143] hover:bg-[#B79143]/10 transition" style={{ borderColor: BORDER_GOLD_MEDIUM }} onClick={closeExpenseModal}>✕</button>
+        {/* ── Other Income Tab ── */}
+        {activeTab === 'income' && (
+          <div className="rounded-2xl border backdrop-blur-xl p-4 sm:p-6" style={{ borderColor: BORDER_GOLD, backgroundColor: PANEL_BG }}>
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+              <div>
+                <h2 className="text-xl font-bold text-[#F8F3EA]">Other Income</h2>
+                <p className="text-sm text-[#b89b84] mt-1">
+                  {filterEvent !== 'all' ? selectedEventName : 'Sponsorships, grants, and other non-payment revenue'}
+                </p>
               </div>
+              {canEdit && (
+                <button
+                  type="button"
+                  className="rounded-xl border px-4 py-2.5 text-sm font-semibold text-emerald-300 border-emerald-400/40 bg-emerald-500/10 hover:bg-emerald-500/20 transition w-full sm:w-auto text-center"
+                  onClick={() => openAddModal('income')}
+                >
+                  + Add Income
+                </button>
+              )}
+            </div>
+            {renderFinancialTable(otherIncomes, 'income')}
+          </div>
+        )}
 
-              <div className="p-6 space-y-5">
-                <div>
-                  <label className={labelCls}>Description *</label>
-                  <input className={inputCls} placeholder="e.g. Venue rental for Day 2" value={expenseForm.description} onChange={e => setExpenseForm({ ...expenseForm, description: e.target.value })} />
+        {/* ── Add / Edit Modal ── */}
+        {showModal && canEdit && (() => {
+          const isIncome = modalType === 'income';
+          const categories = isIncome ? INCOME_CATEGORIES : EXPENSE_CATEGORIES;
+          const title = isIncome
+            ? (editingId ? '✏️ Edit Income' : '💵 Record Other Income')
+            : (editingId ? '✏️ Edit Expense' : '💸 Record Expense');
+          const saveLabel = isIncome
+            ? (saving ? 'Saving…' : editingId ? '💾 Update Income' : '💵 Record Income')
+            : (saving ? 'Saving…' : editingId ? '💾 Update Expense' : '💸 Record Expense');
+
+          return (
+            <div
+              className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/85 p-4 backdrop-blur-sm"
+              onClick={e => e.target === e.currentTarget && closeModal()}
+            >
+              <div className="w-full max-w-[540px] rounded-2xl border shadow-2xl max-h-[90vh] overflow-y-auto" style={{ borderColor: isIncome ? 'rgba(52,211,153,0.3)' : BORDER_GOLD_STRONG, backgroundColor: BG_COLOR }}>
+                <div className="sticky top-0 flex items-center justify-between px-6 py-5 border-b" style={{ borderColor: isIncome ? 'rgba(52,211,153,0.3)' : BORDER_GOLD_STRONG, backgroundColor: BG_COLOR }}>
+                  <h3 className="text-lg font-bold text-[#F8F3EA]">{title}</h3>
+                  <button className="rounded-lg border px-3 py-1.5 text-sm text-[#B79143] hover:bg-[#B79143]/10 transition" style={{ borderColor: BORDER_GOLD_MEDIUM }} onClick={closeModal}>✕</button>
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+
+                <div className="p-6 space-y-5">
                   <div>
-                    <label className={labelCls}>Amount (PKR) *</label>
-                    <input className={inputCls} type="number" placeholder="e.g. 15000" value={expenseForm.amount} onChange={e => setExpenseForm({ ...expenseForm, amount: e.target.value })} />
+                    <label className={labelCls}>Description *</label>
+                    <input
+                      className={inputCls}
+                      placeholder={isIncome ? 'e.g. Government grant for MUN 2025' : 'e.g. Venue rental for Day 2'}
+                      value={form.description}
+                      onChange={e => setForm({ ...form, description: e.target.value })}
+                    />
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className={labelCls}>Amount (PKR) *</label>
+                      <input
+                        className={inputCls}
+                        type="number"
+                        placeholder="e.g. 15000"
+                        value={form.amount}
+                        onChange={e => setForm({ ...form, amount: e.target.value })}
+                      />
+                    </div>
+                    <div>
+                      <label className={labelCls}>Category</label>
+                      <select
+                        className={inputCls + ' appearance-none'}
+                        value={form.category}
+                        onChange={e => setForm({ ...form, category: e.target.value })}
+                      >
+                        <option value="">Select category</option>
+                        {categories.map(c => <option key={c} value={c}>{c}</option>)}
+                      </select>
+                    </div>
                   </div>
                   <div>
-                    <label className={labelCls}>Category</label>
-                    <select className={inputCls + ' appearance-none'} value={expenseForm.category} onChange={e => setExpenseForm({ ...expenseForm, category: e.target.value })}>
-                      <option value="">Select category</option>
-                      {EXPENSE_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                    <label className={labelCls}>Related Event (optional)</label>
+                    <select
+                      className={inputCls + ' appearance-none'}
+                      value={form.eventId}
+                      onChange={e => setForm({ ...form, eventId: e.target.value })}
+                    >
+                      <option value="">General</option>
+                      {events.map(ev => <option key={ev.id} value={ev.id}>{ev.name}</option>)}
                     </select>
                   </div>
                 </div>
-                <div>
-                  <label className={labelCls}>Related Event (optional)</label>
-                  <select className={inputCls + ' appearance-none'} value={expenseForm.eventId} onChange={e => setExpenseForm({ ...expenseForm, eventId: e.target.value })}>
-                    <option value="">General Expense</option>
-                    {events.map(ev => <option key={ev.id} value={ev.id}>{ev.name}</option>)}
-                  </select>
+
+                <div className="sticky bottom-0 flex gap-3 justify-end px-6 py-5 border-t" style={{ borderColor: isIncome ? 'rgba(52,211,153,0.3)' : BORDER_GOLD_STRONG, backgroundColor: BG_COLOR }}>
+                  <button
+                    className="rounded-xl border px-5 py-2.5 text-sm font-semibold text-[#B79143] transition hover:bg-[#B79143]/10"
+                    style={{ borderColor: BORDER_GOLD_MEDIUM }}
+                    onClick={closeModal}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    className={`rounded-xl px-5 py-2.5 text-sm font-semibold transition hover:scale-[1.02] disabled:opacity-50 disabled:hover:scale-100 ${
+                      isIncome
+                        ? 'bg-gradient-to-r from-emerald-700 via-emerald-500 to-emerald-400 text-white'
+                        : 'bg-gradient-to-r from-[#8E6B2F] via-[#B79143] to-[#D7B46A] text-[#2A0B12]'
+                    }`}
+                    onClick={handleSave}
+                    disabled={saving}
+                  >
+                    {saveLabel}
+                  </button>
                 </div>
               </div>
-
-              <div className="sticky bottom-0 flex gap-3 justify-end px-6 py-5 border-t" style={{ borderColor: BORDER_GOLD_STRONG, backgroundColor: BG_COLOR }}>
-                <button className="rounded-xl border px-5 py-2.5 text-sm font-semibold text-[#B79143] transition hover:bg-[#B79143]/10" style={{ borderColor: BORDER_GOLD_MEDIUM }} onClick={closeExpenseModal}>Cancel</button>
-                <button className="rounded-xl bg-gradient-to-r from-[#8E6B2F] via-[#B79143] to-[#D7B46A] px-5 py-2.5 text-sm font-semibold text-[#2A0B12] transition hover:scale-[1.02] disabled:opacity-50 disabled:hover:scale-100" onClick={handleSaveExpense} disabled={savingExpense}>
-                  {savingExpense ? 'Saving…' : editingExpenseId ? '💾 Update Expense' : '💸 Record Expense'}
-                </button>
-              </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
+
       </div>
     </div>
   );

@@ -18,8 +18,8 @@ const BG_GRADIENT = 'linear-gradient(180deg, rgba(68,7,19,0.55) 0%, rgba(10,0,2,
 const GLOW_GOLD = 'radial-gradient(circle, rgba(183,145,67,0.18), transparent 70%)';
 const GLOW_RED  = 'radial-gradient(circle, rgba(120,18,30,0.18), transparent 70%)';
 const PANEL_BG  = 'rgba(68,7,19,0.58)';
-const BORDER_GOLD       = 'rgba(183,145,67,0.18)';
-const BORDER_GOLD_LIGHT = 'rgba(183,145,67,0.08)';
+const BORDER_GOLD        = 'rgba(183,145,67,0.18)';
+const BORDER_GOLD_LIGHT  = 'rgba(183,145,67,0.08)';
 const BORDER_GOLD_MEDIUM = 'rgba(183,145,67,0.28)';
 
 const COLORS = ['#C9A84C', '#D7B46A', '#E8C97A', '#8E6B2F', '#FF6B6B'];
@@ -54,8 +54,8 @@ export default function AdminDashboard() {
     totalUsers: 0, totalEvents: 0, totalRegistrations: 0,
     pendingPayments: 0, approvedPayments: 0, rejectedPayments: 0,
     refundedPayments: 0, cancelledPayments: 0,
-    totalRevenue: 0, totalRefunded: 0, delegates: 0, sponsors: 0,
-    committees: 0, admins: 0, superAdmins: 0,
+    totalRevenue: 0, totalRefunded: 0, otherIncome: 0,
+    delegates: 0, sponsors: 0, committees: 0, admins: 0, superAdmins: 0,
   });
   const [recentPayments, setRecentPayments] = useState([]);
   const [recentUsers,    setRecentUsers]    = useState([]);
@@ -72,12 +72,14 @@ export default function AdminDashboard() {
           { data: regs },
           { data: pays },
           { data: comms },
+          { data: fins },
         ] = await Promise.all([
           supabase.from('users').select('*').order('created_at', { ascending: false }),
           supabase.from('events').select('*').order('created_at', { ascending: false }),
           supabase.from('registrations').select('type, event_id'),
           supabase.from('payments').select('*').order('created_at', { ascending: false }),
           supabase.from('committees').select('*'),
+          supabase.from('financials').select('amount, income_type'),   // ← fetch other income
         ]);
 
         const payments      = keysToCamel(pays || []);
@@ -85,9 +87,15 @@ export default function AdminDashboard() {
         const usersData     = keysToCamel(users || []);
         const eventsData    = keysToCamel(events || []);
         const commsData     = keysToCamel(comms || []);
+        const financials    = keysToCamel(fins || []);
 
-        const approved = payments.filter(p => p.status === 'approved');
-        const refunded = payments.filter(p => p.status === 'refunded');
+        const approved    = payments.filter(p => p.status === 'approved');
+        const refunded    = payments.filter(p => p.status === 'refunded');
+        const otherIncome = financials
+          .filter(f => f.incomeType === 'income')
+          .reduce((s, f) => s + (f.amount || 0), 0);
+
+        const totalPayRev = approved.reduce((s, p) => s + (p.amount || 0), 0);
 
         setStats({
           totalUsers:         usersData.length,
@@ -98,8 +106,9 @@ export default function AdminDashboard() {
           rejectedPayments:   payments.filter(p => p.status === 'rejected').length,
           refundedPayments:   refunded.length,
           cancelledPayments:  payments.filter(p => p.status === 'cancelled').length,
-          totalRevenue:       approved.reduce((s, p) => s + (p.amount || 0), 0),
+          totalRevenue:       totalPayRev + otherIncome,   // ← includes other income
           totalRefunded:      refunded.reduce((s, p) => s + (p.amount || 0), 0),
+          otherIncome,
           delegates:          registrations.filter(r => r.type === 'delegate').length,
           sponsors:           registrations.filter(r => r.type === 'sponsor').length,
           committees:         commsData.length,
@@ -182,7 +191,7 @@ export default function AdminDashboard() {
             </p>
           </div>
 
-          {/* View-only banner for admin role */}
+          {/* View-only banner */}
           {!canEdit && (
             <div className="rounded-xl border border-amber-500/35 bg-amber-950/25 px-4 py-3 text-sm text-amber-100/90 flex items-center gap-3 mb-6">
               <span className="text-lg">👁️</span>
@@ -190,7 +199,7 @@ export default function AdminDashboard() {
             </div>
           )}
 
-          {/* Pending payment alert — only for superAdmin */}
+          {/* Pending payment alert */}
           {canEdit && stats.pendingPayments > 0 && (
             <div className="rounded-xl border border-amber-500/35 bg-amber-950/25 backdrop-blur-sm px-4 py-4 text-sm leading-relaxed text-amber-100/90 flex items-center gap-3 mb-6 cursor-pointer hover:bg-amber-950/35 transition"
               onClick={() => navigate('/admin/payments')}>
@@ -220,10 +229,10 @@ export default function AdminDashboard() {
           {/* Stat Cards — Row 2 (financial) */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-5 mb-4 sm:mb-6">
             {[
-              { label: 'Pending',       value: stats.pendingPayments,              icon: '⏳', sub: 'awaiting approval', highlight: false },
-              { label: 'Approved',      value: stats.approvedPayments,             icon: '✅', sub: 'confirmed payments', highlight: false },
-              { label: 'Gross Revenue', value: formatCurrency(stats.totalRevenue), icon: '💰', sub: 'approved only',      highlight: true },
-              { label: 'Net Revenue',   value: formatCurrency(netRev),             icon: '📊', sub: 'gross − refunds',   highlight: true },
+              { label: 'Pending',       value: stats.pendingPayments,              icon: '⏳', sub: 'awaiting approval',        highlight: false },
+              { label: 'Approved',      value: stats.approvedPayments,             icon: '✅', sub: 'confirmed payments',        highlight: false },
+              { label: 'Gross Revenue', value: formatCurrency(stats.totalRevenue), icon: '💰', sub: 'payments + other income',   highlight: true },
+              { label: 'Net Revenue',   value: formatCurrency(netRev),             icon: '📊', sub: 'gross − refunds',           highlight: true },
             ].map((s, i) => (
               <div key={i} className="rounded-2xl border backdrop-blur-xl p-4 sm:p-5 transition-all duration-300 hover:scale-[1.02] hover:shadow-lg hover:shadow-[#B79143]/5"
                 style={{ borderColor: BORDER_GOLD, backgroundColor: PANEL_BG }}>
@@ -234,6 +243,16 @@ export default function AdminDashboard() {
               </div>
             ))}
           </div>
+
+          {/* Other Income note — only show if there is any */}
+          {stats.otherIncome > 0 && (
+            <div className="rounded-xl border border-emerald-500/35 bg-emerald-950/20 backdrop-blur-sm px-4 py-4 text-sm leading-relaxed text-emerald-100/90 flex items-start gap-3 mb-4 sm:mb-6">
+              <span className="text-[1.1rem] shrink-0 mt-0.5">💵</span>
+              <span>
+                <strong>{formatCurrency(stats.otherIncome)}</strong> in other income (grants, sponsorships, etc.) is included in gross revenue.
+              </span>
+            </div>
+          )}
 
           {/* Refund Warning */}
           {stats.refundedPayments > 0 && (
@@ -287,10 +306,10 @@ export default function AdminDashboard() {
               <h2 className="text-lg font-bold text-[#F8F3EA] mb-4">Quick Actions</h2>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 {[
-                  { label: 'Review Payments',  icon: '⏳', path: '/admin/payments',          highlight: stats.pendingPayments > 0, badge: stats.pendingPayments || null },
-                  { label: 'Create Event',      icon: '📅', path: '/admin/events',            highlight: false, badge: null },
-                  { label: 'Record Expense',    icon: '💸', path: '/admin/financials',        highlight: false, badge: null },
-                  { label: 'Manage Users',      icon: '👥', path: '/admin/admin-management',  highlight: false, badge: null },
+                  { label: 'Review Payments', icon: '⏳', path: '/admin/payments',         highlight: stats.pendingPayments > 0, badge: stats.pendingPayments || null },
+                  { label: 'Create Event',     icon: '📅', path: '/admin/events',           highlight: false, badge: null },
+                  { label: 'Financials',       icon: '💰', path: '/admin/financials',       highlight: false, badge: null },
+                  { label: 'Manage Users',     icon: '👥', path: '/admin/admin-management', highlight: false, badge: null },
                 ].map((a, i) => (
                   <button key={i} onClick={() => navigate(a.path)}
                     className={`relative rounded-xl border p-3 sm:p-4 text-left transition-all hover:scale-[1.02] hover:shadow-lg ${a.highlight ? 'border-amber-400/40 bg-amber-500/10 hover:bg-amber-500/15' : 'hover:bg-[rgba(183,145,67,0.06)]'}`}
@@ -365,7 +384,7 @@ export default function AdminDashboard() {
               <div>
                 <h2 className="text-xl font-bold text-[#F8F3EA]">Recent Users</h2>
                 <p className="text-sm text-[#b89b84] mt-1">Latest registered participants.</p>
-              </div>
+          </div>
               <button onClick={() => navigate('/admin/admin-management')}
                 className="rounded-xl border px-4 py-2 text-sm text-[#B79143] hover:bg-[rgba(183,145,67,0.08)] transition"
                 style={{ borderColor: BORDER_GOLD_MEDIUM }}>
@@ -451,7 +470,7 @@ export default function AdminDashboard() {
                         <td className="py-4 pr-4 text-[#D7B46A] font-semibold">{formatCurrency(evRev)}</td>
                         <td className="py-4">
                           <span className={`inline-block rounded-lg px-3 py-1 text-[10px] uppercase tracking-[0.15em] font-bold ${
-                            ev.status === 'active'    ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-400/30'
+                            ev.status === 'active'     ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-400/30'
                             : ev.status === 'upcoming' ? 'bg-amber-500/15 text-amber-300 border border-amber-400/30'
                             : 'bg-red-500/15 text-red-300 border border-red-400/30'
                           }`}>
