@@ -269,15 +269,22 @@ export default function PaymentApproval() {
                   <table className="min-w-full">
                     <thead>
                       <tr className="border-b text-left" style={{ borderColor: 'rgba(183,145,67,0.12)' }}>
-                        {['Event','Type','Request','Orig. Status','Amount','Reason','Date','Status', canEdit ? 'Actions' : ''].filter(Boolean).map(h => (
-                          <th key={h} className="pb-4 text-[#B79143] uppercase tracking-[0.2em] text-xs font-bold pr-4">{h}</th>
+                        {['Participant','Event','Type','Request','Orig. Status','Amount','Reason','Date','Status', canEdit ? 'Actions' : ''].filter(Boolean).map(h => (
+                          <th key={h} className="pb-4 text-[#B79143] uppercase tracking-[0.2em] text-xs font-bold pr-4 whitespace-nowrap">{h}</th>
                         ))}
                       </tr>
                     </thead>
                     <tbody>
-                      {refundRequests.map(r => (
+                      {refundRequests.map(r => {
+                        const name = getParticipantName(r);
+                        const sub = getParticipantSub(r);
+                        return (
                         <tr key={r.id} className="border-b hover:bg-[rgba(183,145,67,0.04)] transition" style={{ borderColor: BORDER_GOLD_LIGHT }}>
-                          <td className="py-4 pr-4 font-bold text-[#F8F3EA] text-sm">{r.eventName || '—'}</td>
+                          <td className="py-4 pr-4">
+                            <div className="font-bold text-[#F8F3EA] text-sm whitespace-nowrap">{name}</div>
+                            {sub && <div className="text-xs text-[#b89b84] mt-0.5 whitespace-nowrap">{sub}</div>}
+                          </td>
+                          <td className="py-4 pr-4 font-bold text-[#F8F3EA] text-sm whitespace-nowrap">{r.eventName || '—'}</td>
                           <td className="py-4 pr-4">
                             <span className="inline-block rounded-lg border px-3 py-1.5 text-xs uppercase tracking-[0.15em] text-[#B79143] font-bold" style={{ borderColor: 'rgba(183,145,67,0.25)', backgroundColor: 'rgba(183,145,67,0.08)' }}>
                               {r.registrationType}
@@ -318,20 +325,31 @@ export default function PaymentApproval() {
                             </td>
                           )}
                         </tr>
-                      ))}
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
 
                 {/* Mobile Cards */}
                 <div className="md:hidden space-y-4">
-                  {refundRequests.map(r => (
+                  {refundRequests.map(r => {
+                    const name = getParticipantName(r);
+                    const sub = getParticipantSub(r);
+                    return (
                     <div key={r.id} className="rounded-2xl border backdrop-blur-sm p-4 space-y-3" style={{ borderColor: BORDER_GOLD, backgroundColor: CARD_BG }}>
                       <div className="flex items-start justify-between">
-                        <h4 className="font-bold text-[#F8F3EA] text-base">{r.eventName || '—'}</h4>
+                        <div className="min-w-0 flex-1">
+                          <h4 className="font-bold text-[#F8F3EA] text-base">{name}</h4>
+                          {sub && <p className="text-xs text-[#b89b84] mt-0.5 truncate">{sub}</p>}
+                        </div>
                         <span className={statusBadge(r.status)}>{r.status}</span>
                       </div>
                       <div className="grid grid-cols-2 gap-3 text-sm">
+                        <div>
+                          <p className="text-[10px] uppercase tracking-wider text-[#B79143] mb-1 font-bold">Event</p>
+                          <p className="text-[#F8F3EA] font-bold text-sm">{r.eventName || '—'}</p>
+                        </div>
                         <div>
                           <p className="text-[10px] uppercase tracking-wider text-[#B79143] mb-1 font-bold">Amount</p>
                           <p className="text-[#F8F3EA] font-bold">
@@ -359,7 +377,8 @@ export default function PaymentApproval() {
                         </div>
                       )}
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </>
             )}
@@ -408,7 +427,7 @@ export default function PaymentApproval() {
                       <thead>
                         <tr className="border-b text-left" style={{ borderColor: 'rgba(183,145,67,0.12)' }}>
                           {['Participant','Event','Type','Method','Amount','Receipt','Date','Status', canEdit ? 'Actions' : ''].filter(Boolean).map(h => (
-                            <th key={h} className="pb-4 text-[#B79143] uppercase tracking-[0.2em] text-xs font-bold pr-4">{h}</th>
+                            <th key={h} className="pb-4 text-[#B79143] uppercase tracking-[0.2em] text-xs font-bold pr-4 whitespace-nowrap">{h}</th>
                           ))}
                         </tr>
                       </thead>
