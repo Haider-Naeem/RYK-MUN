@@ -122,6 +122,10 @@ export default function Landing() {
     country: '', cnic: '', gender: '', committee: '',
     countryPersonality: '',
     profileImage: null, profilePreview: null,
+    delegateCount: 6,
+    delegates: Array.from({ length: 8 }, () => ({
+      fullName: '', email: '', phone: '', cnic: '', committee: '', countryPersonality: '', profileImage: null, profilePreview: null
+    }))
   });
   const [paymentData, setPaymentData] = useState({
     method: null, receiptFile: null, receiptPreview: null,
@@ -408,6 +412,9 @@ export default function Landing() {
       } else {
         openLogin('wizard');
       }
+    } else if (role === 'delegation') {
+      setSelectedRole(role);
+      setWizardStep(2);
     } else {
       setSelectedRole(role);
       setWizardStep(2);
@@ -420,6 +427,12 @@ export default function Landing() {
       return;
     }
     if (stepOrBack === 2) {
+      if (selectedRole === 'delegation') {
+        const { fullName, email, phone } = formData;
+        if (!fullName || !email || !phone) { toast.error('Institution, email, phone required'); return false; }
+        setWizardStep(3);
+        return;
+      }
       const { fullName, email, phone, profileImage } = formData;
       if (!fullName || !email || !phone) { toast.error('Name, email, phone required'); return false; }
       if (!profileImage) { toast.error('Profile photo required'); return false; }
@@ -451,7 +464,17 @@ export default function Landing() {
     
     if (!paymentData.method)      { toast.error('Select a payment method'); return; }
     if (!paymentData.receiptFile) { toast.error('Payment screenshot required'); return; }
-    if (!formData.profileImage)   { toast.error('Profile photo required'); return; }
+    if (selectedRole !== 'delegation' && !formData.profileImage) { toast.error('Profile photo required'); return; }
+    if (selectedRole === 'delegation') {
+      const activeDelegates = formData.delegates.slice(0, formData.delegateCount);
+      for (let i=0; i<activeDelegates.length; i++) {
+        const d = activeDelegates[i];
+        if (!d.fullName || !d.email || !d.committee || !d.countryPersonality || !d.profileImage) {
+          toast.error(`Please fill all required fields and upload photo for Delegate ${i+1}`);
+          return;
+        }
+      }
+    }
     if (!currentUser)             { openLogin('submit'); return; }
 
     setWizardLoading(true);
@@ -477,12 +500,23 @@ export default function Landing() {
 
       let receiptUrl = '';
       let profileUrl = '';
+      let delegateProfileUrls = [];
 
       try {
-        [receiptUrl, profileUrl] = await Promise.all([
-          uploadToR2(paymentData.receiptFile, `receipts/${currentUser.id}/${Date.now()}_receipt`),
-          uploadToR2(formData.profileImage,   `profiles/${currentUser.id}/${Date.now()}_profile`),
-        ]);
+        if (selectedRole === 'delegation') {
+          // Upload receipt
+          receiptUrl = await uploadToR2(paymentData.receiptFile, `receipts/${currentUser.id}/${Date.now()}_receipt`);
+          // Upload all delegate profile images
+          const activeDelegates = formData.delegates.slice(0, formData.delegateCount);
+          delegateProfileUrls = await Promise.all(
+            activeDelegates.map((d, i) => uploadToR2(d.profileImage, `profiles/${currentUser.id}/${Date.now()}_delegate_${i}`))
+          );
+        } else {
+          [receiptUrl, profileUrl] = await Promise.all([
+            uploadToR2(paymentData.receiptFile, `receipts/${currentUser.id}/${Date.now()}_receipt`),
+            uploadToR2(formData.profileImage,   `profiles/${currentUser.id}/${Date.now()}_profile`),
+          ]);
+        }
       } catch (uploadErr) {
         if (seatClaimed) {
           await supabase.rpc('release_filled_seat', { committee_id: formData.committee });
@@ -491,47 +525,81 @@ export default function Landing() {
         throw uploadErr;
       }
 
-      const entryFeeAmount = selectedRole === 'sponsor'
-        ? (selectedEvent?.sponsorPackages?.find?.(p => p.name === formData.committee)?.amount || 0)
-        : (selectedEvent?.entryFees || 0);
+      let entryFeeAmount = 0;
+      if (selectedRole === 'sponsor') {
+        entryFeeAmount = selectedEvent?.sponsorPackages?.find?.(p => p.name === formData.committee)?.amount || 0;
+      } else if (selectedRole === 'delegation') {
+        entryFeeAmount = (selectedEvent?.entryFees || 5000) * formData.delegateCount;
+      } else {
+        entryFeeAmount = selectedEvent?.entryFees || 5000;
+      }
 
-      const committee = committees.find(c => c.id === formData.committee);
+      let regDataId = null;
 
-      const { data: regData, error: regErr } = await supabase
-        .from('registrations')
-        .insert({
-          user_id:            currentUser.id,
-          event_id:           selectedEvent?.id,
-          event_name:         selectedEvent?.name || '',
-          type:               selectedRole,
-          full_name:          formData.fullName,
-          email:              formData.email,
-          phone:              formData.phone,
-          cnic:               formData.cnic,
-          committee:          selectedRole === 'delegate' ? formData.committee : null,
-          committee_name:     selectedRole === 'delegate'
-                              ? (committee?.name || '')
-                              : (formData.committee || ''),
-          countryPersonality: formData.countryPersonality || null,
-          image_url:          profileUrl,
-          payment_status:     'pending',
-        })
-        .select()
-        .single();
+      if (selectedRole === 'delegation') {
+        // 1. Insert Head Payer
+        const { data: mainReg, error: mainErr } = await supabase.from('registrations').insert({
+          user_id: currentUser.id, event_id: selectedEvent?.id, event_name: selectedEvent?.name || '',
+          type: 'delegation', full_name: formData.fullName, email: formData.email, phone: formData.phone,
+          payment_status: 'pending'
+        }).select().single();
+        if (mainErr) throw mainErr;
+        regDataId = mainReg.id;
 
-      if (regErr) {
-        if (seatClaimed) {
-          await supabase.rpc('release_filled_seat', { committee_id: formData.committee });
-          await refreshSeatInfo();
+        // 2. Insert Members
+        const activeDelegates = formData.delegates.slice(0, formData.delegateCount);
+        const membersToInsert = activeDelegates.map((d, i) => {
+          const committeeName = committees.find(c => c.id === d.committee)?.name || '';
+          return {
+            user_id: currentUser.id, event_id: selectedEvent?.id, event_name: selectedEvent?.name || '',
+            type: 'delegation_member', full_name: d.fullName, email: d.email, phone: d.phone, cnic: d.cnic,
+            committee: d.committee, committee_name: committeeName, countryPersonality: d.countryPersonality,
+            image_url: delegateProfileUrls[i], contact_person: mainReg.id, // Link to main delegation
+            payment_status: 'pending'
+          };
+        });
+        const { error: membersErr } = await supabase.from('registrations').insert(membersToInsert);
+        if (membersErr) throw membersErr;
+
+      } else {
+        const committee = committees.find(c => c.id === formData.committee);
+        const { data: regData, error: regErr } = await supabase
+          .from('registrations')
+          .insert({
+            user_id:            currentUser.id,
+            event_id:           selectedEvent?.id,
+            event_name:         selectedEvent?.name || '',
+            type:               selectedRole,
+            full_name:          formData.fullName,
+            email:              formData.email,
+            phone:              formData.phone,
+            cnic:               formData.cnic,
+            committee:          selectedRole === 'delegate' ? formData.committee : null,
+            committee_name:     selectedRole === 'delegate'
+                                ? (committee?.name || '')
+                                : (formData.committee || ''),
+            countryPersonality: formData.countryPersonality || null,
+            image_url:          profileUrl,
+            payment_status:     'pending',
+          })
+          .select()
+          .single();
+
+        if (regErr) {
+          if (seatClaimed) {
+            await supabase.rpc('release_filled_seat', { committee_id: formData.committee });
+            await refreshSeatInfo();
+          }
+          throw regErr;
         }
-        throw regErr;
+        regDataId = regData.id;
       }
 
       const { error: payErr } = await supabase
         .from('payments')
         .insert({
           user_id:           currentUser.id,
-          registration_id:   regData.id,
+          registration_id:   regDataId,
           event_id:          selectedEvent?.id,
           event_name:        selectedEvent?.name || '',
           registration_type: selectedRole,
@@ -568,6 +636,10 @@ export default function Landing() {
       university: '', country: '', cnic: '', gender: '', committee: '',
       countryPersonality: '',
       profileImage: null, profilePreview: null,
+      delegateCount: 6,
+      delegates: Array.from({ length: 8 }, () => ({
+        fullName: '', email: '', phone: '', cnic: '', committee: '', countryPersonality: '', profileImage: null, profilePreview: null
+      }))
     });
     setPaymentData({ method: null, receiptFile: null, receiptPreview: null });
     setWizardSubmitted(false); setPendingAction(null); setWizardLoading(false);
@@ -585,9 +657,14 @@ export default function Landing() {
   const hasDates = !!(selectedEvent?.startDate || selectedEvent?.date);
   const isRegistrationOpen = !!(regStatus.open && hasDates && selectedEvent);
 
-  const entryFee = selectedRole === 'sponsor'
-    ? (selectedEvent?.sponsorPackages?.find?.(p => p.name === formData.committee)?.amount || 0)
-    : (selectedEvent?.entryFees || 5000);
+  let entryFee = 0;
+  if (selectedRole === 'sponsor') {
+    entryFee = selectedEvent?.sponsorPackages?.find?.(p => p.name === formData.committee)?.amount || 0;
+  } else if (selectedRole === 'delegation') {
+    entryFee = (selectedEvent?.entryFees || 5000) * (formData.delegateCount || 6);
+  } else {
+    entryFee = selectedEvent?.entryFees || 5000;
+  }
 
   return (
     <>

@@ -139,7 +139,8 @@ export default function DigitalCard() {
           .from('registrations')
           .select('*')
           .eq('user_id', currentUser.id)
-          .eq('payment_status', 'approved');
+          .eq('payment_status', 'approved')
+          .neq('type', 'delegation');
 
         if (rErr) throw rErr;
 
@@ -219,7 +220,7 @@ export default function DigitalCard() {
   }
 
   function getCommitteeName(reg) {
-    if (reg.type !== 'delegate') return null;
+    if (reg.type !== 'delegate' && reg.type !== 'delegation_member') return null;
     if (reg.committeeabbr) return reg.committeeabbr;
     if (!reg.committee) return null;
     const found = committees.find(c => c.id === reg.committee);
@@ -535,7 +536,7 @@ export default function DigitalCard() {
               fontWeight: 500,
               color: valid ? '#F8F3EA' : '#737373',
             }}>
-              {displayName} ({selectedCard?.type === 'delegate' ? 'Delegate' : 'Sponsor'})
+              {displayName} ({selectedCard?.type === 'delegate' ? 'Delegate' : selectedCard?.type === 'sponsor' ? 'Sponsor' : 'Member'})
             </span>
           </div>
 

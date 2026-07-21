@@ -307,7 +307,11 @@ export default function UserDashboard() {
                             >
                               {reg.type === "delegate"
                                 ? "Delegate"
-                                : "Sponsor"}
+                                : reg.type === "sponsor"
+                                ? "Sponsor"
+                                : reg.type === "delegation"
+                                ? "Delegation"
+                                : "Member"}
                             </span>
                           </td>
 
@@ -332,7 +336,7 @@ export default function UserDashboard() {
                           </td>
 
                           <td className="py-4">
-                            {reg.paymentStatus === "approved" ? (
+                            {reg.paymentStatus === "approved" && reg.type !== "delegation" ? (
                               <button
                                 onClick={() =>
                                   navigate("/my-card", {
@@ -374,7 +378,7 @@ export default function UserDashboard() {
                             backgroundColor: 'rgba(183,145,67,0.08)' 
                           }}
                         >
-                          {reg.type === "delegate" ? "Delegate" : "Sponsor"}
+                          {reg.type === "delegate" ? "Delegate" : reg.type === "sponsor" ? "Sponsor" : reg.type === "delegation" ? "Delegation" : "Member"}
                         </span>
                       </div>
 
@@ -405,7 +409,7 @@ export default function UserDashboard() {
                           {reg.paymentStatus || "pending"}
                         </span>
 
-                        {reg.paymentStatus === "approved" ? (
+                        {reg.paymentStatus === "approved" && reg.type !== "delegation" ? (
                           <button
                             onClick={() =>
                               navigate("/my-card", {

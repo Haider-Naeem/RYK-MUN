@@ -201,6 +201,7 @@ const RegistrationSection = forwardRef(({
                   {[
                     { role: 'delegate', icon: '🧑‍💼', title: 'Delegate', desc: 'Join a committee, represent a nation, and engage in diplomatic debate.', disabled: seatInfo.isFull && seatInfo.totalSeats > 0 },
                     { role: 'sponsor', icon: '🏢', title: 'Sponsor', desc: 'Support the conference as an organizational partner and gain visibility.', disabled: false },
+                    { role: 'delegation', icon: '👥', title: 'Delegation', desc: 'Register a group of 6-8 delegates for the conference.', disabled: false },
                   ].map(({ role, icon, title, desc, disabled }) => (
                     <button key={role}
                       onClick={() => onRoleSelect(role)}
@@ -224,14 +225,14 @@ const RegistrationSection = forwardRef(({
             {wizardStep === 2 && !wizardSubmitted && isRegistrationOpen && (
               <div className="animate-fadeIn">
                 <h3 className="text-base sm:text-lg font-bold text-center mb-4" style={{ color: C.textPrimary }}>
-                  Personal Information
+                  {selectedRole === 'delegation' ? 'Delegation Contact Info' : 'Personal Information'}
                 </h3>
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                   <div className="space-y-3">
                     {[
-                      { lbl: 'Full Name *',     ph: 'John Smith',       key: 'fullName', type: 'text'  },
-                      { lbl: 'Email Address *', ph: 'john@example.com', key: 'email',    type: 'email' },
-                      { lbl: 'Phone Number *',  ph: '+92 300 0000000',  key: 'phone',    type: 'text'  },
+                      { lbl: selectedRole === 'delegation' ? 'Institution / School Name *' : 'Full Name *', ph: selectedRole === 'delegation' ? 'XYZ School' : 'John Smith', key: 'fullName', type: 'text'  },
+                      { lbl: 'Contact Email Address *', ph: 'john@example.com', key: 'email',    type: 'email' },
+                      { lbl: 'Contact Phone Number *',  ph: '+92 300 0000000',  key: 'phone',    type: 'text'  },
                     ].map(({ lbl, ph, key, type }) => (
                       <div key={key}>
                         <label className={labelCls}>{lbl}</label>
@@ -241,19 +242,33 @@ const RegistrationSection = forwardRef(({
                       </div>
                     ))}
                   </div>
-                  <div className="space-y-3">
-                    <div>
-                      <ProfileImagePicker
-                        value={{ file: formData.profileImage, preview: formData.profilePreview }}
-                        onChange={(file, preview) => setFormData({ ...formData, profileImage: file, profilePreview: preview })}
-                      />
+                  {selectedRole !== 'delegation' && (
+                    <div className="space-y-3">
+                      <div>
+                        <ProfileImagePicker
+                          value={{ file: formData.profileImage, preview: formData.profilePreview }}
+                          onChange={(file, preview) => setFormData({ ...formData, profileImage: file, profilePreview: preview })}
+                        />
+                      </div>
+                      <div>
+                        <label className={labelCls}>CNIC</label>
+                        <input className={inputCls} placeholder="XXXXX-XXXXXXX-X"
+                          value={formData.cnic} onChange={e => setFormData({ ...formData, cnic: e.target.value })} />
+                      </div>
                     </div>
-                    <div>
-                      <label className={labelCls}>CNIC</label>
-                      <input className={inputCls} placeholder="XXXXX-XXXXXXX-X"
-                        value={formData.cnic} onChange={e => setFormData({ ...formData, cnic: e.target.value })} />
+                  )}
+                  {selectedRole === 'delegation' && (
+                    <div className="space-y-3">
+                      <div>
+                        <label className={labelCls}>Number of Delegates (6-8) *</label>
+                        <select className={inputCls} value={formData.delegateCount || 6} onChange={e => setFormData({ ...formData, delegateCount: parseInt(e.target.value) })}>
+                          <option value={6}>6 Delegates</option>
+                          <option value={7}>7 Delegates</option>
+                          <option value={8}>8 Delegates</option>
+                        </select>
+                      </div>
                     </div>
-                  </div>
+                  )}
                 </div>
                 <WizardNav onBack={() => onValidateStep('back')} onNext={() => onValidateStep(2)} />
               </div>
@@ -263,13 +278,56 @@ const RegistrationSection = forwardRef(({
             {wizardStep === 3 && !wizardSubmitted && isRegistrationOpen && (
               <div className="animate-fadeIn">
                 <h3 className="text-base sm:text-lg font-bold text-center mb-1" style={{ color: C.textPrimary }}>
-                  {selectedRole === 'delegate' ? 'Select Your Committee' : 'Sponsorship Package'}
+                  {selectedRole === 'delegate' ? 'Select Your Committee' : selectedRole === 'delegation' ? 'Delegation Members' : 'Sponsorship Package'}
                 </h3>
                 <p className="text-center text-xs mb-4" style={{ color: C.textSecondary }}>
-                  {selectedRole === 'delegate' ? 'Choose the committee where you want to make an impact.' : 'Select your preferred sponsorship level.'}
+                  {selectedRole === 'delegate' ? 'Choose the committee where you want to make an impact.' : selectedRole === 'delegation' ? `Enter details for all ${formData.delegateCount} delegates.` : 'Select your preferred sponsorship level.'}
                 </p>
 
-                {selectedRole === 'delegate' ? (
+                {selectedRole === 'delegation' ? (
+                  <div className="space-y-6">
+                    {Array.from({ length: formData.delegateCount }).map((_, i) => {
+                      const d = formData.delegates[i];
+                      const updateDelegate = (key, val) => {
+                        const newDelegates = [...formData.delegates];
+                        newDelegates[i] = { ...d, [key]: val };
+                        setFormData({ ...formData, delegates: newDelegates });
+                      };
+                      return (
+                        <div key={i} className="rounded-lg border p-4 space-y-4" style={{ borderColor: C.borderStrong, background: C.bgDark }}>
+                          <h4 className="font-bold uppercase tracking-wider text-xs border-b pb-2" style={{ color: C.goldLight, borderColor: C.borderFaint }}>Delegate {i + 1}</h4>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div className="space-y-3">
+                              <div><label className={labelCls}>Full Name *</label><input className={inputCls} value={d.fullName} onChange={e => updateDelegate('fullName', e.target.value)} /></div>
+                              <div><label className={labelCls}>Email *</label><input className={inputCls} value={d.email} onChange={e => updateDelegate('email', e.target.value)} /></div>
+                              <div><label className={labelCls}>Phone *</label><input className={inputCls} value={d.phone} onChange={e => updateDelegate('phone', e.target.value)} /></div>
+                              <div><label className={labelCls}>CNIC</label><input className={inputCls} value={d.cnic} onChange={e => updateDelegate('cnic', e.target.value)} /></div>
+                            </div>
+                            <div className="space-y-3">
+                              <div>
+                                <label className={labelCls}>Committee *</label>
+                                <select className={inputCls} value={d.committee} onChange={e => updateDelegate('committee', e.target.value)}>
+                                  <option value="">Select Committee...</option>
+                                  {committees.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                                </select>
+                              </div>
+                              {d.committee && (
+                                <div><label className={labelCls}>Country / Personality *</label><input className={inputCls} value={d.countryPersonality} onChange={e => updateDelegate('countryPersonality', e.target.value)} /></div>
+                              )}
+                              <div>
+                                <label className={labelCls}>Profile Photo *</label>
+                                <ProfileImagePicker
+                                  value={{ file: d.profileImage, preview: d.profilePreview }}
+                                  onChange={(file, preview) => { updateDelegate('profileImage', file); updateDelegate('profilePreview', preview); }}
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : selectedRole === 'delegate' ? (
                   <>
                     <div className="grid gap-2 mb-4" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))' }}>
                       {committees.length > 0 ? committees.map(c => (
@@ -336,6 +394,16 @@ const RegistrationSection = forwardRef(({
                       toast.error('Please enter the country or personality you wish to represent.');
                       return;
                     }
+                    if (selectedRole === 'delegation') {
+                      const activeDelegates = formData.delegates.slice(0, formData.delegateCount);
+                      for (let i = 0; i < activeDelegates.length; i++) {
+                        const d = activeDelegates[i];
+                        if (!d.fullName || !d.email || !d.committee || !d.countryPersonality || !d.profileImage) {
+                          toast.error(`Please fill all required fields and upload photo for Delegate ${i+1}`);
+                          return;
+                        }
+                      }
+                    }
                     onContinue();
                   }} 
                   nextLabel="Continue to Payment →" 
@@ -355,8 +423,11 @@ const RegistrationSection = forwardRef(({
                       style={{ background: 'linear-gradient(135deg, rgba(183,145,67,0.08), rgba(139,26,26,0.05))', borderColor: C.borderStrong }}>
                       <h4 className="text-xs font-bold uppercase tracking-wider mb-2" style={{ color: C.gold }}>Registration Summary</h4>
                       <div className="space-y-1.5 text-xs">
-                        <SummaryRow label="Role" value={selectedRole === 'delegate' ? '🧑‍💼 Delegate' : '🏢 Sponsor'} />
+                        <SummaryRow label="Role" value={selectedRole === 'delegate' ? '🧑‍💼 Delegate' : selectedRole === 'delegation' ? '👥 Delegation' : '🏢 Sponsor'} />
                         <SummaryRow label="Name" value={formData.fullName} />
+                        {selectedRole === 'delegation' && (
+                          <SummaryRow label="Delegates" value={`${formData.delegateCount} Members`} />
+                        )}
                         {selectedRole === 'delegate' && formData.committee && (
                           <SummaryRow label="Committee" value={committees.find(c => c.id === formData.committee)?.name || 'Selected'} />
                         )}

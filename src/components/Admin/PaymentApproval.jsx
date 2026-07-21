@@ -133,6 +133,15 @@ export default function PaymentApproval() {
         payment_id: payment.id, registration_id: payment.registrationId || null,
       });
       if (error) throw error;
+
+      if (payment.registrationType === 'delegation') {
+        const { error: memErr } = await supabase
+          .from('registrations')
+          .update({ payment_status: 'approved' })
+          .eq('contact_person', payment.registrationId);
+        if (memErr) throw memErr;
+      }
+
       toast.success('✅ Payment approved!');
       setSelected(null);
       fetchAll();

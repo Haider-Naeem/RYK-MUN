@@ -685,7 +685,7 @@ export default function EventManagement() {
       const { data: existing } = await supabase.from('qr_codes').select('registration_id').eq('event_id', selectedEvent.id);
       const existingRegIds = new Set((existing || []).map(q => q.registration_id));
       const evRegs = registrations.filter(r => r.eventId === selectedEvent.id && r.paymentStatus === 'approved');
-      const toGenerate = evRegs.filter(r => !existingRegIds.has(r.id));
+      const toGenerate = evRegs.filter(r => !existingRegIds.has(r.id) && r.type !== 'delegation');
       if (toGenerate.length === 0) { toast.success('All approved registrations already have cards!'); return; }
       const paymentByReg = Object.fromEntries(payments.filter(p => p.eventId === selectedEvent.id).map(p => [p.registrationId, p.id]));
       const rows = toGenerate.map(reg => ({
@@ -699,6 +699,30 @@ export default function EventManagement() {
       const { error } = await supabase.from('qr_codes').insert(rows);
       if (error) throw error;
       toast.success(`🎫 Generated ${toGenerate.length} digital card${toGenerate.length !== 1 ? 's' : ''}!`);
+    } catch (e) { toast.error('Card generation failed: ' + e.message); } finally { setGeneratingCards(false); }
+  }
+
+  async function handleGenerateDelegationCards(delegationId) {
+    if (!canEdit || !selectedEvent) return;
+    setGeneratingCards(true);
+    try {
+      const { data: existing } = await supabase.from('qr_codes').select('registration_id').eq('event_id', selectedEvent.id);
+      const existingRegIds = new Set((existing || []).map(q => q.registration_id));
+      const evMembers = registrations.filter(r => r.eventId === selectedEvent.id && r.type === 'delegation_member' && r.contactPerson === delegationId && r.paymentStatus === 'approved');
+      const toGenerate = evMembers.filter(r => !existingRegIds.has(r.id));
+      if (toGenerate.length === 0) { toast.success('All approved members of this delegation already have cards!'); return; }
+      const paymentByReg = Object.fromEntries(payments.filter(p => p.eventId === selectedEvent.id).map(p => [p.registrationId, p.id]));
+      const rows = toGenerate.map(reg => ({
+        user_id: reg.userId,
+        event_id: reg.eventId,
+        registration_id: reg.id,
+        payment_id: paymentByReg[delegationId] || null,
+        qr_token: generateQRToken(),
+        is_used: false,
+      }));
+      const { error } = await supabase.from('qr_codes').insert(rows);
+      if (error) throw error;
+      toast.success(`🎫 Generated ${toGenerate.length} digital card${toGenerate.length !== 1 ? 's' : ''} for the delegation!`);
     } catch (e) { toast.error('Card generation failed: ' + e.message); } finally { setGeneratingCards(false); }
   }
 
@@ -1100,9 +1124,10 @@ export default function EventManagement() {
     const ev = selectedEvent;
     const evComms     = committees.filter(c => c.eventId === ev.id);
     const evRegs      = registrations.filter(r => r.eventId === ev.id);
-    const evDelegates = evRegs.filter(r => r.type === 'delegate');
+    const evDelegates = evRegs.filter(r => r.type === 'delegate' || r.type === 'delegation_member');
+    const evDelegations = evRegs.filter(r => r.type === 'delegation');
     const evSponsors  = evRegs.filter(r => r.type === 'sponsor');
-    const approvedCount = evRegs.filter(r => r.paymentStatus === 'approved').length;
+    const approvedCount = evRegs.filter(r => r.paymentStatus === 'approved' && r.type !== 'delegation').length;
     const filtDels    = evDelegates.filter(d => filterCommittee === 'all' || d.committee === filterCommittee);
     const filtSpons   = evSponsors.filter(s => filterSponsorLvl === 'all' || s.category === filterSponsorLvl);
     const detailTotalSeats  = evComms.reduce((s, c) => s + (getCommSeats(c) || 0), 0);
@@ -1124,6 +1149,7 @@ export default function EventManagement() {
       { key: 'info',       label: 'Event Info' },
       { key: 'venue',      label: 'Venue' },
       { key: 'delegates',  label: `Delegates (${evDelegates.length})` },
+      { key: 'delegations',label: `Delegations (${evDelegations.length})` },
       { key: 'sponsors',   label: `Sponsors (${evSponsors.length})` },
       { key: 'committees', label: `Committees (${evComms.length})` },
       { key: 'packages',   label: 'Packages' },
@@ -1191,10 +1217,10 @@ export default function EventManagement() {
           {/* Stats Grid */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-5 mb-6">
             {[
-              { label: 'Registered', value: evRegs.length,      icon: '👥' },
+              { label: 'Registered', value: evRegs.filter(r => r.type !== 'delegation').length, icon: '👥' },
               { label: 'Delegates',  value: evDelegates.length,  icon: '🧑‍💼' },
+              { label: 'Delegations',value: evDelegations.length, icon: '👥' },
               { label: 'Sponsors',   value: evSponsors.length,   icon: '🏢' },
-              { label: 'Committees', value: evComms.length,      icon: '⭐' },
             ].map((s, i) => (
               <div key={i} className="rounded-2xl border backdrop-blur-xl p-4 sm:p-5 transition-all duration-300 hover:scale-[1.02]" style={{ borderColor: BORDER_GOLD, backgroundColor: PANEL_BG }}>
                 <div className="text-xl sm:text-2xl mb-2">{s.icon}</div>
@@ -1413,6 +1439,86 @@ export default function EventManagement() {
                 </div>
               );
             })()}
+
+            {/* ── Delegations Tab ── */}
+            {detailTab === 'delegations' && (
+              <div>
+                <div className="flex flex-col sm:flex-row gap-3 mb-4 items-start sm:items-center justify-between">
+                  <span className="text-xs text-[#b89b84]">🕐 Sorted by registration time</span>
+                </div>
+                {evDelegations.length === 0
+                  ? <p className="text-[#b89b84] text-sm py-8 text-center">No delegations found.</p>
+                  : (
+                    <div className="space-y-4">
+                      {evDelegations.map((del, idx) => {
+                        const members = evRegs.filter(r => r.type === 'delegation_member' && r.contactPerson === del.id);
+                        const allApproved = members.length > 0 && members.every(m => m.paymentStatus === 'approved');
+                        return (
+                          <div key={del.id} className="rounded-xl border p-4" style={{ borderColor: BORDER_GOLD_LIGHT, backgroundColor: 'rgba(183,145,67,0.04)' }}>
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4 pb-4 border-b" style={{ borderColor: BORDER_GOLD_LIGHT }}>
+                              <div className="flex items-center gap-4">
+                                <div className="w-10 h-10 rounded-full border flex items-center justify-center text-[#B79143] font-bold shrink-0 bg-black/20" style={{ borderColor: BORDER_GOLD_MEDIUM }}>
+                                  {idx + 1}
+                                </div>
+                                <div>
+                                  <div className="font-bold text-[#F8F3EA] text-sm">Delegation</div>
+                                  <div className="text-xs text-[#b89b84]">Contact: {del.fullName || del.email} • {del.phone}</div>
+                                  <div className="text-xs text-[#b89b84] mt-0.5">Payment: <span className={statusBadge(del.paymentStatus || 'pending')}>{del.paymentStatus || 'pending'}</span></div>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-3">
+                                <div className="text-right">
+                                  <div className="text-xs font-bold text-[#D7B46A]">{members.length} Members</div>
+                                  <div className="text-[10px] text-[#b89b84]">{del.createdAt ? new Date(del.createdAt).toLocaleString('en-PK', { dateStyle: 'medium', timeStyle: 'short' }) : ''}</div>
+                                </div>
+                                {canEdit && (
+                                  <button
+                                    className="rounded-xl bg-gradient-to-r from-[#8E6B2F] via-[#B79143] to-[#D7B46A] px-3 py-1.5 text-xs font-semibold text-[#2A0B12] transition hover:scale-[1.02] disabled:opacity-50 whitespace-nowrap"
+                                    onClick={() => handleGenerateDelegationCards(del.id)}
+                                    disabled={generatingCards || !allApproved}
+                                    title={allApproved ? "Generate cards for all members" : "All members must be approved first"}
+                                  >
+                                    {generatingCards ? '⏳' : '🎫 Cards'}
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                            
+                            {/* Delegation Members List */}
+                            <div className="overflow-x-auto">
+                              <table className="min-w-full text-xs">
+                                <thead>
+                                  <tr className="border-b" style={{ borderColor: 'rgba(183,145,67,0.1)' }}>
+                                    <th className="pb-2 text-[#B79143] text-left">Member</th>
+                                    <th className="pb-2 text-[#B79143] text-left">Committee</th>
+                                    <th className="pb-2 text-[#B79143] text-center">Status</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {members.map(m => (
+                                    <tr key={m.id} className="border-b last:border-0 hover:bg-[rgba(183,145,67,0.02)] transition" style={{ borderColor: BORDER_GOLD_LIGHT }}>
+                                      <td className="py-2">
+                                        <div className="text-[#F8F3EA]">{m.fullName || '—'}</div>
+                                        <div className="text-[10px] text-[#b89b84]">{m.email}</div>
+                                      </td>
+                                      <td className="py-2 text-[#D7B46A]">{resolveCommitteeName(m)}</td>
+                                      <td className="py-2 text-center"><span className={statusBadge(m.paymentStatus || 'pending')}>{m.paymentStatus || 'pending'}</span></td>
+                                    </tr>
+                                  ))}
+                                  {members.length === 0 && (
+                                    <tr><td colSpan="3" className="py-2 text-center text-[#b89b84]">No members attached</td></tr>
+                                  )}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )
+                }
+              </div>
+            )}
 
             {/* ── Sponsors Tab ── */}
             {detailTab === 'sponsors' && (
