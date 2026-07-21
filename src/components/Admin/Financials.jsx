@@ -79,6 +79,7 @@ export default function Financials() {
   const refunded      = filtPays.filter(p => p.status === 'refunded');
   const totalPayRev   = approved.reduce((s, p) => s + (p.amount || 0), 0);
   const delegateRev   = approved.filter(p => p.registrationType === 'delegate').reduce((s, p) => s + (p.amount || 0), 0);
+  const delegationRev = approved.filter(p => p.registrationType === 'delegation').reduce((s, p) => s + (p.amount || 0), 0);
   const sponsorRev    = approved.filter(p => p.registrationType === 'sponsor').reduce((s, p) => s + (p.amount || 0), 0);
   const totalRefunded = refunded.reduce((s, p) => s + (p.amount || 0), 0);
   const totalOtherInc = otherIncomes.reduce((s, f) => s + (f.amount || 0), 0);
@@ -94,6 +95,7 @@ export default function Financials() {
     return {
       name:         ev.name.length > 12 ? ev.name.slice(0, 12) + '…' : ev.name,
       Delegates:    evPays.filter(p => p.registrationType === 'delegate').reduce((s, p) => s + (p.amount || 0), 0),
+      Delegations:  evPays.filter(p => p.registrationType === 'delegation').reduce((s, p) => s + (p.amount || 0), 0),
       Sponsors:     evPays.filter(p => p.registrationType === 'sponsor').reduce((s, p) => s + (p.amount || 0), 0),
       'Other Income': evInc.reduce((s, f) => s + (f.amount || 0), 0),
       Expenses:     evExp.reduce((s, e) => s + (e.amount || 0), 0),
@@ -103,6 +105,7 @@ export default function Financials() {
   // ── Pie chart ────────────────────────────────────────────────────
   const revPie = [
     { name: 'Delegate Revenue', value: delegateRev },
+    { name: 'Delegation Revenue', value: delegationRev },
     { name: 'Sponsor Revenue',  value: sponsorRev },
     { name: 'Other Income',     value: totalOtherInc },
     { name: 'Total Expenses',   value: totalExp },
@@ -392,10 +395,11 @@ export default function Financials() {
         </div>
 
         {/* Stat Cards — Row 1 */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-5 mb-4 sm:mb-6">
+        <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-5 mb-4 sm:mb-6">
           {[
             { label: 'Total Revenue',    value: formatCurrency(totalRev),    icon: '💰', color: '#D7B46A' },
             { label: 'Delegate Revenue', value: formatCurrency(delegateRev), icon: '🧑‍💼', color: '#D7B46A' },
+            { label: 'Delegation Rev',   value: formatCurrency(delegationRev), icon: '👥', color: '#D7B46A' },
             { label: 'Sponsor Revenue',  value: formatCurrency(sponsorRev),  icon: '🏢', color: '#D7B46A' },
             { label: 'Balance',          value: formatCurrency(netProfit),   icon: netProfit >= 0 ? '📈' : '📉', color: netProfit >= 0 ? '#5CCC8A' : '#FF6B6B' },
           ].map((s, i) => (
@@ -450,7 +454,8 @@ export default function Financials() {
                       <Tooltip contentStyle={{ background: 'rgba(68,7,19,0.95)', border: '1px solid rgba(183,145,67,0.3)', borderRadius: '12px', color: '#F8F3EA', fontSize: 11 }} formatter={v => formatCurrency(v)} />
                       <Legend wrapperStyle={{ color: '#F8F3EA', fontSize: 11 }} />
                       <Bar dataKey="Delegates"    fill="#C9A84C" stackId="rev" radius={[0, 0, 0, 0]} />
-                      <Bar dataKey="Sponsors"     fill="#D7B46A" stackId="rev" radius={[0, 0, 0, 0]} />
+                      <Bar dataKey="Delegations"  fill="#D7B46A" stackId="rev" radius={[0, 0, 0, 0]} />
+                      <Bar dataKey="Sponsors"     fill="#E8C97A" stackId="rev" radius={[0, 0, 0, 0]} />
                       <Bar dataKey="Other Income" fill="#5CCC8A" stackId="rev" radius={[4, 4, 0, 0]} />
                       <Bar dataKey="Expenses"     fill="#FF6B6B" radius={[4, 4, 0, 0]} />
                     </BarChart>

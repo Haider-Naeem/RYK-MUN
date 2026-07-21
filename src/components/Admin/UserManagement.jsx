@@ -287,7 +287,7 @@ export default function UserManagement() {
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
               {filtered.map(r => {
                 const name = r.fullName || r.companyName || '—';
-                const typeLabel = r.type === 'delegate' ? '🧑‍💼 Delegate' : r.type === 'delegation' ? '👥 Delegation' : r.type === 'delegation_member' ? '🧑‍💼 Member' : '🏢 Sponsor';
+                const typeLabel = r.type === 'delegate' ? '🧑‍💼 Delegate' : r.type === 'delegation' ? '👥 Delegation' : r.type === 'delegation_member' ? '🧑‍💼 Delegation Member' : '🏢 Sponsor';
                 
                 return (
                   <div

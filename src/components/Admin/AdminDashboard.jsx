@@ -96,6 +96,7 @@ export default function AdminDashboard() {
           .reduce((s, f) => s + (f.amount || 0), 0);
 
         const totalPayRev = approved.reduce((s, p) => s + (p.amount || 0), 0);
+        const delegationRevenue = approved.filter(p => p.registrationType === 'delegation').reduce((s, p) => s + (p.amount || 0), 0);
 
         setStats({
           totalUsers:         usersData.length,
@@ -114,6 +115,7 @@ export default function AdminDashboard() {
           committees:         commsData.length,
           admins:             usersData.filter(u => u.role === 'admin').length,
           superAdmins:        usersData.filter(u => u.role === 'superAdmin').length,
+          delegationRevenue,
         });
 
         setRecentPayments(payments.slice(0, 5));
@@ -227,12 +229,13 @@ export default function AdminDashboard() {
           </div>
 
           {/* Stat Cards — Row 2 (financial) */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-5 mb-4 sm:mb-6">
+          <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-5 mb-4 sm:mb-6">
             {[
               { label: 'Pending',       value: stats.pendingPayments,              icon: '⏳', sub: 'awaiting approval',        highlight: false },
               { label: 'Approved',      value: stats.approvedPayments,             icon: '✅', sub: 'confirmed payments',        highlight: false },
               { label: 'Gross Revenue', value: formatCurrency(stats.totalRevenue), icon: '💰', sub: 'payments + other income',   highlight: true },
               { label: 'Net Revenue',   value: formatCurrency(netRev),             icon: '📊', sub: 'gross − refunds',           highlight: true },
+              { label: 'Delegation Rev',value: formatCurrency(stats.delegationRevenue), icon: '👥', sub: 'from delegations', highlight: true },
             ].map((s, i) => (
               <div key={i} className="rounded-2xl border backdrop-blur-xl p-4 sm:p-5 transition-all duration-300 hover:scale-[1.02] hover:shadow-lg hover:shadow-[#B79143]/5"
                 style={{ borderColor: BORDER_GOLD, backgroundColor: PANEL_BG }}>
