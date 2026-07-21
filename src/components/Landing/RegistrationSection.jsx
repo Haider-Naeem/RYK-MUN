@@ -262,9 +262,9 @@ const RegistrationSection = forwardRef(({
                       <div>
                         <label className={labelCls}>Number of Delegates (6-8) *</label>
                         <select className={inputCls} value={formData.delegateCount || 6} onChange={e => setFormData({ ...formData, delegateCount: parseInt(e.target.value) })}>
-                          <option value={6}>6 Delegates</option>
-                          <option value={7}>7 Delegates</option>
-                          <option value={8}>8 Delegates</option>
+                          <option value={6} className="bg-[#3A0810] text-[#F8F3EA]">6 Delegates</option>
+                          <option value={7} className="bg-[#3A0810] text-[#F8F3EA]">7 Delegates</option>
+                          <option value={8} className="bg-[#3A0810] text-[#F8F3EA]">8 Delegates</option>
                         </select>
                       </div>
                     </div>
@@ -288,9 +288,13 @@ const RegistrationSection = forwardRef(({
                   <div className="space-y-6">
                     {Array.from({ length: formData.delegateCount }).map((_, i) => {
                       const d = formData.delegates[i];
-                      const updateDelegate = (key, val) => {
+                      const updateDelegate = (keyOrUpdates, val) => {
                         const newDelegates = [...formData.delegates];
-                        newDelegates[i] = { ...d, [key]: val };
+                        if (typeof keyOrUpdates === 'object') {
+                          newDelegates[i] = { ...d, ...keyOrUpdates };
+                        } else {
+                          newDelegates[i] = { ...d, [keyOrUpdates]: val };
+                        }
                         setFormData({ ...formData, delegates: newDelegates });
                       };
                       return (
@@ -307,8 +311,8 @@ const RegistrationSection = forwardRef(({
                               <div>
                                 <label className={labelCls}>Committee *</label>
                                 <select className={inputCls} value={d.committee} onChange={e => updateDelegate('committee', e.target.value)}>
-                                  <option value="">Select Committee...</option>
-                                  {committees.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                                  <option value="" className="bg-[#3A0810] text-[#F8F3EA]">Select Committee...</option>
+                                  {committees.map(c => <option key={c.id} value={c.id} className="bg-[#3A0810] text-[#F8F3EA]">{c.name}</option>)}
                                 </select>
                               </div>
                               {d.committee && (
@@ -318,7 +322,7 @@ const RegistrationSection = forwardRef(({
                                 <label className={labelCls}>Profile Photo *</label>
                                 <ProfileImagePicker
                                   value={{ file: d.profileImage, preview: d.profilePreview }}
-                                  onChange={(file, preview) => { updateDelegate('profileImage', file); updateDelegate('profilePreview', preview); }}
+                                  onChange={(file, preview) => updateDelegate({ profileImage: file, profilePreview: preview })}
                                 />
                               </div>
                             </div>
