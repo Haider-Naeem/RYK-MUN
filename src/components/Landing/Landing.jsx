@@ -479,6 +479,7 @@ export default function Landing() {
 
     setWizardLoading(true);
     let seatClaimed = false;
+    let claimedCommittees = [];
 
     try {
       if (selectedRole === 'delegate') {
@@ -492,10 +493,31 @@ export default function Landing() {
         if (!granted) {
           await refreshSeatInfo();
           toast.error('Sorry, all seats just filled up. Please try again or contact the organizer.');
+          setWizardLoading(false);
           return;
         }
 
         seatClaimed = true;
+      } else if (selectedRole === 'delegation') {
+        const activeDelegates = formData.delegates.slice(0, formData.delegateCount);
+        for (let i = 0; i < activeDelegates.length; i++) {
+          const commId = activeDelegates[i].committee;
+          const { data: granted, error: seatErr } = await supabase
+            .rpc('increment_filled_seats', { committee_id: commId });
+
+          if (seatErr) throw seatErr;
+
+          if (!granted) {
+            for (const claimedId of claimedCommittees) {
+              await supabase.rpc('release_filled_seat', { committee_id: claimedId });
+            }
+            await refreshSeatInfo();
+            toast.error(`Sorry, the committee selected for Delegate ${i+1} just filled up. Please choose another.`);
+            setWizardLoading(false);
+            return;
+          }
+          claimedCommittees.push(commId);
+        }
       }
 
       let receiptUrl = '';
@@ -504,13 +526,13 @@ export default function Landing() {
 
       try {
         if (selectedRole === 'delegation') {
-          // Upload receipt
-          receiptUrl = await uploadToR2(paymentData.receiptFile, `receipts/${currentUser.id}/${Date.now()}_receipt`);
-          // Upload all delegate profile images
           const activeDelegates = formData.delegates.slice(0, formData.delegateCount);
-          delegateProfileUrls = await Promise.all(
-            activeDelegates.map((d, i) => uploadToR2(d.profileImage, `profiles/${currentUser.id}/${Date.now()}_delegate_${i}`))
-          );
+          const [recUrl, ...profUrls] = await Promise.all([
+            uploadToR2(paymentData.receiptFile, `receipts/${currentUser.id}/${Date.now()}_receipt`),
+            ...activeDelegates.map((d, i) => uploadToR2(d.profileImage, `profiles/${currentUser.id}/${Date.now()}_delegate_${i}`))
+          ]);
+          receiptUrl = recUrl;
+          delegateProfileUrls = profUrls;
         } else {
           [receiptUrl, profileUrl] = await Promise.all([
             uploadToR2(paymentData.receiptFile, `receipts/${currentUser.id}/${Date.now()}_receipt`),
@@ -520,8 +542,11 @@ export default function Landing() {
       } catch (uploadErr) {
         if (seatClaimed) {
           await supabase.rpc('release_filled_seat', { committee_id: formData.committee });
-          await refreshSeatInfo();
         }
+        for (const claimedId of claimedCommittees) {
+          await supabase.rpc('release_filled_seat', { committee_id: claimedId });
+        }
+        await refreshSeatInfo();
         throw uploadErr;
       }
 

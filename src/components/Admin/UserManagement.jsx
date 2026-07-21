@@ -253,6 +253,8 @@ export default function UserManagement() {
               <option value="all">All Types</option>
               <option value="delegate">Delegates</option>
               <option value="sponsor">Sponsors</option>
+              <option value="delegation">Delegations</option>
+              <option value="delegation_member">Delegation Members</option>
             </select>
             <select className={selectCls + ' w-full sm:w-[160px] min-w-0 shrink-0'} value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
               <option value="all">All Status</option>
@@ -285,7 +287,7 @@ export default function UserManagement() {
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
               {filtered.map(r => {
                 const name = r.fullName || r.companyName || '—';
-                const typeLabel = r.type === 'delegate' ? '🧑‍💼 Delegate' : '🏢 Sponsor';
+                const typeLabel = r.type === 'delegate' ? '🧑‍💼 Delegate' : r.type === 'delegation' ? '👥 Delegation' : r.type === 'delegation_member' ? '🧑‍💼 Member' : '🏢 Sponsor';
                 
                 return (
                   <div

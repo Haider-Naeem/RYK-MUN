@@ -109,7 +109,7 @@ export default function AdminDashboard() {
           totalRevenue:       totalPayRev + otherIncome,   // ← includes other income
           totalRefunded:      refunded.reduce((s, p) => s + (p.amount || 0), 0),
           otherIncome,
-          delegates:          registrations.filter(r => r.type === 'delegate').length,
+          delegates:          registrations.filter(r => r.type === 'delegate' || r.type === 'delegation_member').length,
           sponsors:           registrations.filter(r => r.type === 'sponsor').length,
           committees:         commsData.length,
           admins:             usersData.filter(u => u.role === 'admin').length,
