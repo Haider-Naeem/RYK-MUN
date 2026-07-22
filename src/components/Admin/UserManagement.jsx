@@ -443,6 +443,7 @@ export default function UserManagement() {
                     ['CNIC', selected.cnic || null],
                     ['Committee', selected.type === 'delegate' ? getCommitteeOrCategory(selected) : null],
                     ['Sponsor Level', selected.type === 'sponsor' ? selected.category : null],
+                    ['Ambassador Code', selected.type === 'delegate' ? selected.ambassadorCode : null],
                     ['Contact Person', selected.contactPerson || null],
                     ['Registered', formatDate(selected.createdAt)],
                     ['Payment Status', selected.paymentStatus || 'pending'],

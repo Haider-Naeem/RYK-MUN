@@ -120,7 +120,7 @@ export default function Landing() {
   const [formData, setFormData] = useState({
     fullName: '', email: '', phone: '', university: '',
     country: '', cnic: '', gender: '', committee: '',
-    countryPersonality: '',
+    countryPersonality: '', ambassadorCode: '',
     profileImage: null, profilePreview: null,
     delegateCount: 6,
     delegates: Array.from({ length: 8 }, () => ({
@@ -606,6 +606,7 @@ export default function Landing() {
             committee_name:     selectedRole === 'delegate'
                                 ? (committee?.name || '')
                                 : (formData.committee || ''),
+            ambassador_code:    selectedRole === 'delegate' ? (formData.ambassadorCode || null) : null,
             countryPersonality: formData.countryPersonality || null,
             image_url:          profileUrl,
             payment_status:     'pending',
@@ -662,7 +663,7 @@ export default function Landing() {
       email: currentUser ? (userProfile?.email || currentUser?.email || '') : '',
       phone: currentUser ? (userProfile?.phone || '') : '',
       university: '', country: '', cnic: '', gender: '', committee: '',
-      countryPersonality: '',
+      countryPersonality: '', ambassadorCode: '',
       profileImage: null, profilePreview: null,
       delegateCount: 6,
       delegates: Array.from({ length: 8 }, () => ({

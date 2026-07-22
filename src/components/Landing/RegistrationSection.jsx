@@ -354,21 +354,38 @@ const RegistrationSection = forwardRef(({
                     </div>
 
                     {formData.committee && (
-                      <div className="max-w-lg mx-auto mb-1 animate-fadeIn">
-                        <label className={labelCls}>
-                          Country / Personality *
-                        </label>
-                        <input
-                          className={inputCls}
-                          type="text"
-                          placeholder="e.g. United States, Angela Merkel, Elon Musk…"
-                          value={formData.countryPersonality || ''}
-                          onChange={e => setFormData({ ...formData, countryPersonality: e.target.value })}
-                          required
-                        />
-                        <p className="mt-1 text-[0.6rem]" style={{ color: C.textDim }}>
-                          Enter the country or personality you wish to represent.
-                        </p>
+                      <div className="max-w-lg mx-auto mb-1 space-y-4 animate-fadeIn">
+                        <div>
+                          <label className={labelCls}>
+                            Country / Personality *
+                          </label>
+                          <input
+                            className={inputCls}
+                            type="text"
+                            placeholder="e.g. United States, Angela Merkel, Elon Musk…"
+                            value={formData.countryPersonality || ''}
+                            onChange={e => setFormData({ ...formData, countryPersonality: e.target.value })}
+                            required
+                          />
+                          <p className="mt-1 text-[0.6rem]" style={{ color: C.textDim }}>
+                            Enter the country or personality you wish to represent.
+                          </p>
+                        </div>
+                        <div>
+                          <label className={labelCls}>
+                            Ambassador Code (Optional)
+                          </label>
+                          <input
+                            className={inputCls}
+                            type="text"
+                            placeholder="e.g. AMB-123"
+                            value={formData.ambassadorCode || ''}
+                            onChange={e => setFormData({ ...formData, ambassadorCode: e.target.value })}
+                          />
+                          <p className="mt-1 text-[0.6rem]" style={{ color: C.textDim }}>
+                            If you were referred by a campus ambassador, enter their code here.
+                          </p>
+                        </div>
                       </div>
                     )}
                   </>
