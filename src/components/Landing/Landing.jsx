@@ -252,7 +252,7 @@ export default function Landing() {
     }
     
     // For delegate action, check event status
-    if (pendingAction === 'delegate') {
+    if (pendingAction === 'delegate' || pendingAction === 'delegation') {
       if (!selectedEvent) {
         toast.error('No active event found. You can still explore the website and create your profile.');
         setPendingAction(null);
@@ -266,7 +266,7 @@ export default function Landing() {
         scrollTo('register');
         return;
       }
-      setSelectedRole('delegate');
+      setSelectedRole(pendingAction);
       setShowWizard(true);
       setWizardStep(2);
     } else if (pendingAction === 'continue') {
@@ -360,13 +360,13 @@ export default function Landing() {
     setShowAuthModal(true);
   };
 
-  const handleApplyAsDelegate = () => {
+  const handleApply = (role) => {
     // If no event at all, still allow signup
     if (!selectedEvent) {
       if (currentUser) {
         toast.error('No active event found. Please check back later.');
       } else {
-        openLogin('delegate');
+        openLogin(role);
       }
       return;
     }
@@ -394,14 +394,17 @@ export default function Landing() {
     }
     
     if (currentUser) {
-      setSelectedRole('delegate');
+      setSelectedRole(role);
       setShowWizard(true);
       setWizardStep(2);
       setTimeout(() => sectionRefs.register.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 200);
     } else {
-      openLogin('delegate');
+      openLogin(role);
     }
   };
+
+  const handleApplyAsDelegate = () => handleApply('delegate');
+  const handleApplyAsDelegation = () => handleApply('delegation');
 
   const handleRoleSelect = (role) => {
     if (role === 'wizard') {
@@ -720,6 +723,7 @@ export default function Landing() {
           seatInfo={seatInfo}
           displayCommittees={displayCommittees}
           onApplyDelegate={handleApplyAsDelegate}
+          onApplyDelegation={handleApplyAsDelegation}
           onExploreCommittees={() => scrollTo('committees')}
           onScrollTo={() => scrollTo('about')}
           isRegistrationOpen={isRegistrationOpen}

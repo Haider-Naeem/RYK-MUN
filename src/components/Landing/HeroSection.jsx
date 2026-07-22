@@ -1,6 +1,6 @@
 import { forwardRef } from "react";
 
-const HeroSection = forwardRef(({ heroDateLabel, seatInfo, displayCommittees, onApplyDelegate, onExploreCommittees, onScrollTo, isRegistrationOpen, hasDates }, ref) => {
+const HeroSection = forwardRef(({ heroDateLabel, seatInfo, displayCommittees, onApplyDelegate, onApplyDelegation, onExploreCommittees, onScrollTo, isRegistrationOpen, hasDates }, ref) => {
   // Determine if the delegate button should be disabled
   const isDisabled = (seatInfo.isFull && seatInfo.totalSeats > 0) || !isRegistrationOpen;
   
@@ -48,6 +48,13 @@ const HeroSection = forwardRef(({ heroDateLabel, seatInfo, displayCommittees, on
             className="text-white font-bold text-sm px-7 sm:px-9 py-3 sm:py-3.5 rounded tracking-wide transition-all hover:-translate-y-0.5 hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
             style={{ background: 'linear-gradient(135deg,#8b1a1a,#B79143)', boxShadow: '0 4px 24px rgba(183,145,67,0.16)' }}>
             {getButtonText()}
+          </button>
+          <button
+            onClick={onApplyDelegation}
+            disabled={isDisabled}
+            className="text-white font-bold text-sm px-7 sm:px-9 py-3 sm:py-3.5 rounded tracking-wide transition-all hover:-translate-y-0.5 hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+            style={{ background: 'linear-gradient(135deg,#8b1a1a,#B79143)', boxShadow: '0 4px 24px rgba(183,145,67,0.16)' }}>
+            {getButtonText() === 'Apply as Delegate' ? 'Apply as Delegation' : getButtonText()}
           </button>
           <button onClick={onExploreCommittees}
             className="font-bold text-sm px-7 sm:px-9 py-3 sm:py-3.5 rounded tracking-wide border-2 bg-transparent transition-all hover:opacity-80"
