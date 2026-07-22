@@ -5,10 +5,10 @@ import SummaryRow from "./components/SummaryRow";
 import ProfileImagePicker from "./components/ProfileImagePicker";
 
 const REGISTRATION_STEPS = [
-  { id: 1, label: "Role",      icon: "🎯" },
-  { id: 2, label: "Details",   icon: "📝" },
+  { id: 1, label: "Role", icon: "🎯" },
+  { id: 2, label: "Details", icon: "📝" },
   { id: 3, label: "Committee", icon: "🏛️" },
-  { id: 4, label: "Payment",   icon: "💳" },
+  { id: 4, label: "Payment", icon: "💳" },
 ];
 
 const inputCls = `w-full rounded-xl border px-3 py-2.5 text-sm outline-none transition-all duration-300 bg-[rgba(255,255,255,0.04)] border-[rgba(183,145,67,0.22)] text-[#F8F3EA] placeholder-[#8c6d62] focus:border-[#B79143] focus:ring-2 focus:ring-[rgba(183,145,67,0.15)]`;
@@ -39,7 +39,7 @@ const RegistrationSection = forwardRef(({
   const isRegistrationOpen = !!(regStatus.open && hasDates && selectedEvent);
 
   const hasRefreshedSeats = useRef(false);
-  
+
   useEffect(() => {
     if (wizardSubmitted && onRefreshSeats && !hasRefreshedSeats.current) {
       hasRefreshedSeats.current = true;
@@ -91,15 +91,15 @@ const RegistrationSection = forwardRef(({
                 <span className="text-[0.65rem] uppercase tracking-wider font-bold" style={{ color: C.gold }}>
                   Live Seats
                 </span>
-                <span className={`text-xs font-bold transition-all duration-300 ${seatInfo.isFull ? 'text-red-400' : ''}`} 
+                <span className={`text-xs font-bold transition-all duration-300 ${seatInfo.isFull ? 'text-red-400' : ''}`}
                   style={{ color: seatInfo.isFull ? undefined : C.goldLight }}>
                   {seatInfo.totalFilled} / {seatInfo.totalSeats}
                 </span>
               </div>
               <div className="h-1.5 w-full rounded-full overflow-hidden" style={{ background: 'rgba(183,145,67,0.1)' }}>
                 <div className={`h-full rounded-full transition-all duration-1000 ease-out ${seatInfo.isFull ? 'bg-red-400' : ''}`}
-                  style={{ 
-                    width: `${seatInfo.pct}%`, 
+                  style={{
+                    width: `${seatInfo.pct}%`,
                     background: seatInfo.isFull ? undefined : C.gradBtn,
                   }} />
               </div>
@@ -117,19 +117,19 @@ const RegistrationSection = forwardRef(({
               {isRegistrationOpen ? 'Ready to Join RYK MUN?' : 'Registration Not Open'}
             </h3>
             <p className="max-w-md mx-auto mb-4 text-sm" style={{ color: C.textSecondary }}>
-              {isRegistrationOpen 
+              {isRegistrationOpen
                 ? 'Sign in or create an account to begin your registration.'
-                : !hasDates 
+                : !hasDates
                   ? 'Event dates will be announced soon. Please check back later.'
                   : !regStatus.open
-                  ? regStatus.message || 'Registration is currently closed.'
-                  : 'Registration is currently unavailable.'
+                    ? regStatus.message || 'Registration is currently closed.'
+                    : 'Registration is currently unavailable.'
               }
             </p>
-            <button 
+            <button
               onClick={() => {
                 if (!isRegistrationOpen) {
-                  toast.error(!hasDates 
+                  toast.error(!hasDates
                     ? 'Event dates are yet to be announced. Registration will open once dates are confirmed.'
                     : regStatus.message || 'Registration is not open yet.'
                   );
@@ -151,9 +151,9 @@ const RegistrationSection = forwardRef(({
 
             {!isRegistrationOpen && !wizardSubmitted && (
               <div className="mb-4 rounded-lg border border-red-500/30 bg-red-950/20 px-3 py-2 text-center text-xs text-red-200">
-                ⚠️ Registration is currently closed. 
-                {!hasDates 
-                  ? ' Event dates are yet to be announced.' 
+                ⚠️ Registration is currently closed.
+                {!hasDates
+                  ? ' Event dates are yet to be announced.'
                   : ` ${regStatus.message || 'You cannot proceed with registration at this time.'}`
                 }
               </div>
@@ -171,8 +171,8 @@ const RegistrationSection = forwardRef(({
                             wizardStep > step.id
                               ? { background: C.gradHero, borderColor: C.gold, color: '#fff' }
                               : wizardStep === step.id
-                              ? { borderColor: C.gold, background: 'rgba(183,145,67,0.1)', color: C.gold }
-                              : { borderColor: C.borderFaint, color: C.textDim }
+                                ? { borderColor: C.gold, background: 'rgba(183,145,67,0.1)', color: C.gold }
+                                : { borderColor: C.borderFaint, color: C.textDim }
                           }>
                           {wizardStep > step.id ? '✓' : step.icon}
                         </div>
@@ -230,9 +230,9 @@ const RegistrationSection = forwardRef(({
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                   <div className="space-y-3">
                     {[
-                      { lbl: selectedRole === 'delegation' ? 'Institution / School Name *' : 'Full Name *', ph: selectedRole === 'delegation' ? 'XYZ School' : 'John Smith', key: 'fullName', type: 'text'  },
-                      { lbl: 'Contact Email Address *', ph: 'john@example.com', key: 'email',    type: 'email' },
-                      { lbl: 'Contact Phone Number *',  ph: '+92 300 0000000',  key: 'phone',    type: 'text'  },
+                      { lbl: selectedRole === 'delegation' ? 'Institution / School Name *' : 'Full Name *', ph: selectedRole === 'delegation' ? 'XYZ School' : 'John Smith', key: 'fullName', type: 'text' },
+                      { lbl: 'Contact Email Address *', ph: 'john@example.com', key: 'email', type: 'email' },
+                      { lbl: 'Contact Phone Number *', ph: '+92 300 0000000', key: 'phone', type: 'text' },
                     ].map(({ lbl, ph, key, type }) => (
                       <div key={key}>
                         <label className={labelCls}>{lbl}</label>
@@ -378,7 +378,7 @@ const RegistrationSection = forwardRef(({
                           <input
                             className={inputCls}
                             type="text"
-                            placeholder="e.g. AMB-123"
+                            placeholder="MUN-RYK-123"
                             value={formData.ambassadorCode || ''}
                             onChange={e => setFormData({ ...formData, ambassadorCode: e.target.value })}
                           />
@@ -408,8 +408,8 @@ const RegistrationSection = forwardRef(({
                     ))}
                   </div>
                 )}
-                <WizardNav 
-                  onBack={() => onValidateStep('back')} 
+                <WizardNav
+                  onBack={() => onValidateStep('back')}
                   onNext={() => {
                     if (selectedRole === 'delegate' && formData.committee && !formData.countryPersonality?.trim()) {
                       toast.error('Please enter the country or personality you wish to represent.');
@@ -420,14 +420,14 @@ const RegistrationSection = forwardRef(({
                       for (let i = 0; i < activeDelegates.length; i++) {
                         const d = activeDelegates[i];
                         if (!d.fullName || !d.email || !d.committee || !d.countryPersonality || !d.profileImage) {
-                          toast.error(`Please fill all required fields and upload photo for Delegate ${i+1}`);
+                          toast.error(`Please fill all required fields and upload photo for Delegate ${i + 1}`);
                           return;
                         }
                       }
                     }
                     onContinue();
-                  }} 
-                  nextLabel="Continue to Payment →" 
+                  }}
+                  nextLabel="Continue to Payment →"
                 />
               </div>
             )}
@@ -470,9 +470,9 @@ const RegistrationSection = forwardRef(({
                       <label className={labelCls}>Payment Method</label>
                       <div className="grid gap-1.5">
                         {[
-                          { key: 'bank',      label: 'Bank Transfer', icon: '🏦', detail: selectedEvent?.bankAccount,  name: selectedEvent?.bankName      },
-                          { key: 'jazzcash',  label: 'JazzCash',      icon: '💛', detail: selectedEvent?.jazzCash,     name: selectedEvent?.jazzCashName  },
-                          { key: 'easypaisa', label: 'EasyPaisa',     icon: '💚', detail: selectedEvent?.easyPaisa,    name: selectedEvent?.easyPaisaName },
+                          { key: 'bank', label: 'Bank Transfer', icon: '🏦', detail: selectedEvent?.bankAccount, name: selectedEvent?.bankName },
+                          { key: 'jazzcash', label: 'JazzCash', icon: '💛', detail: selectedEvent?.jazzCash, name: selectedEvent?.jazzCashName },
+                          { key: 'easypaisa', label: 'EasyPaisa', icon: '💚', detail: selectedEvent?.easyPaisa, name: selectedEvent?.easyPaisaName },
                         ].filter(m => m.detail).map(m => (
                           <button key={m.key} onClick={() => setPaymentData({ ...paymentData, method: m })}
                             className="flex items-center gap-2 rounded-lg border p-2.5 text-left transition-all duration-300"

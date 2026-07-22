@@ -1362,7 +1362,7 @@ export default function EventManagement() {
                         <table className="min-w-full text-sm">
                           <thead>
                             <tr className="border-b" style={{ borderColor: 'rgba(183,145,67,0.12)' }}>
-                              {['#', 'Delegate', 'Phone', 'Committee', 'Personality', 'Payment', 'Booked At', canEdit ? 'Actions' : ''].filter(Boolean).map(h => (
+                              {['#', 'Delegate', 'Phone', 'Committee', 'Personality', 'Amb. Code', 'Payment', 'Booked At', canEdit ? 'Actions' : ''].filter(Boolean).map(h => (
                                 <th key={h} className="pb-4 text-[#B79143] uppercase tracking-[0.2em] text-[11px] font-bold pr-4 text-center">{h}</th>
                               ))}
                             </tr>
@@ -1413,6 +1413,7 @@ export default function EventManagement() {
                                       </div>
                                     )}
                                   </td>
+                                  <td className="py-4 pr-4 text-center text-sm text-[#F8F3EA] font-medium">{d.ambassadorCode || '—'}</td>
                                   <td className="py-4 pr-4 text-center"><span className={statusBadge(d.paymentStatus || 'pending')}>{d.paymentStatus || 'pending'}</span></td>
                                   <td className="py-4 pr-4 text-center">
                                     <div className="text-xs text-[#b89b84]">{d.createdAt ? new Date(d.createdAt).toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</div>

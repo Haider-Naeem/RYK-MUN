@@ -342,6 +342,13 @@ export default function UserManagement() {
                       <p className="text-sm text-[#F8F3EA]">{getCommitteeOrCategory(r)}</p>
                     </div>
 
+                    {r.type === 'delegate' && (
+                      <div className="mb-3">
+                        <p className="text-[10px] uppercase tracking-wider text-[#B79143] mb-1 font-bold">Ambassador Code</p>
+                        <p className="text-sm text-[#F8F3EA]">{r.ambassadorCode || '—'}</p>
+                      </div>
+                    )}
+
                     {/* Contact */}
                     <div className="mb-3">
                       <p className="text-[10px] uppercase tracking-wider text-[#B79143] mb-1 font-bold">Contact</p>
