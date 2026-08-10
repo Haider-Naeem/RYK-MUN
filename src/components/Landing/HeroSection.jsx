@@ -1,4 +1,5 @@
 import { forwardRef } from "react";
+import ffcLogo from "../../Assets/FFC Logo.svg";
 
 const HeroSection = forwardRef(({ heroDateLabel, seatInfo, displayCommittees, onApplyDelegate, onApplyDelegation, onExploreCommittees, onScrollTo, isRegistrationOpen, hasDates }, ref) => {
   // Determine if the delegate button should be disabled
@@ -30,7 +31,14 @@ const HeroSection = forwardRef(({ heroDateLabel, seatInfo, displayCommittees, on
           </span>
         </h1>
 
-        <p className="text-sm sm:text-base md:text-lg leading-relaxed max-w-xl" style={{ color: '#c9b29a' }}>
+        <div className="flex flex-row items-center justify-center gap-3 sm:gap-4 mt-4 sm:mt-6 mb-2 sm:mb-4 flex-nowrap overflow-hidden w-full max-w-full px-2">
+          <span className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-semibold" style={{ fontFamily: 'cursive', background: 'linear-gradient(90deg,#B79143,#D7B46A,#B79143)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', whiteSpace: 'nowrap' }}>
+            Powered By
+          </span>
+          <img src={ffcLogo} alt="FFC Logo" className="h-9 sm:h-10 md:h-12 lg:h-16 w-auto object-contain shrink-0" />
+        </div>
+
+        <p className="hidden sm:block text-sm sm:text-base md:text-lg leading-relaxed max-w-xl" style={{ color: '#c9b29a' }}>
           Debate. Diplomacy. Change. — Join hundreds of future leaders tackling the world's most pressing issues on the global stage.
         </p>
 
