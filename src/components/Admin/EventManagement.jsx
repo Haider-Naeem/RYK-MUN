@@ -195,7 +195,7 @@ function WizardBar({ current }) {
 /* ── PDF Generation ── */
 function generateEventPDF(ev, delegates, sponsors, committees) {
   const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-  const W = 210, margin = 18; let y = 0;
+  const W = 210, margin = 12; let y = 0;
   const maroon = [74, 10, 18], gold = [201, 168, 76], cream = [245, 230, 192];
   const commMap = Object.fromEntries(committees.map(c => [c.id, c.abbr || (c.name ? c.name.split(' ').map(n => n[0]).join('').toUpperCase() : '')]));
   function resolveCommittee(reg) { return !reg.committee ? '—' : commMap[reg.committee] || reg.committeeName || reg.committee; }
@@ -252,7 +252,7 @@ function generateEventPDF(ev, delegates, sponsors, committees) {
     });
     y += 8;
   }
-  const delegateColWidths = [8, 40, 30, 35, 33, 28];
+  const delegateColWidths = [12, 45, 33, 40, 36, 20];
   renderSection('DELEGATE REGISTRATIONS',
     sortedDelegates.map((d, i) => [String(i + 1), d.fullName || '—', d.cnic || '—', d.countryPersonality || '—', resolveCommittee(d), d.paymentStatus || 'pending']),
     ['#', 'Full Name', 'CNIC', 'Country/Pers.', 'Committee', 'Status'], delegateColWidths);
@@ -264,6 +264,88 @@ function generateEventPDF(ev, delegates, sponsors, committees) {
     pdf.text(`Page ${i} of ${pageCount}`, W - margin, 295, { align: 'right' });
   }
   pdf.save(`RYKMUN_${(ev.name || 'Event').replace(/\s+/g, '_')}_Report.pdf`);
+}
+
+/* ── Pass PDF Generation ── */
+function generatePassPDF(ev, passRegs, passes) {
+  const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const W = 210, margin = 12; let y = 0;
+  const maroon = [74, 10, 18], gold = [201, 168, 76], cream = [245, 230, 192];
+  
+  const passMap = Object.fromEntries(passes.map(p => [p.id, p.name || '']));
+  function resolvePass(reg) { return !reg.passId ? '—' : passMap[reg.passId] || '—'; }
+
+  const sortedPasses = [...passRegs].sort((a, b) => {
+    const pA = resolvePass(a).toLowerCase();
+    const pB = resolvePass(b).toLowerCase();
+    return pA < pB ? -1 : pA > pB ? 1 : 0;
+  });
+
+  pdf.setFillColor(...maroon); pdf.rect(0, 0, W, 297, 'F');
+  pdf.setFillColor(...gold); pdf.rect(0, 0, W, 42, 'F');
+  pdf.setFont('helvetica', 'bold'); pdf.setFontSize(22); pdf.setTextColor(...maroon);
+  pdf.text('RYK MUN', W / 2, 16, { align: 'center' });
+  pdf.setFontSize(11); pdf.text('Official Event Pass Registration Report', W / 2, 25, { align: 'center' });
+  pdf.setFontSize(14); pdf.text(ev.name || 'Untitled Event', W / 2, 36, { align: 'center' });
+  
+  y = 52;
+  const formatDateForPDF = (dateStr) => {
+    if (!dateStr) return 'TBD';
+    const d = new Date(dateStr);
+    return d.toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' });
+  };
+  const s = ev.startDate || ev.date, e = ev.endDate;
+  const dateLabel = !s ? 'TBD' : (e && e !== s) ? `${formatDateForPDF(s)} - ${formatDateForPDF(e)}` : formatDateForPDF(s);
+  
+  pdf.setFillColor(90, 15, 25); pdf.roundedRect(margin, y, W - margin * 2, 26, 2, 2, 'F');
+  pdf.setDrawColor(...gold); pdf.setLineWidth(0.4); pdf.roundedRect(margin, y, W - margin * 2, 26, 2, 2, 'S');
+  pdf.setFontSize(9);
+  [['Date', dateLabel], ['Venue', ev.venue || 'TBD']].forEach(([label, val], i) => {
+    const col = i % 2 === 0 ? margin + 5 : W / 2 + 5;
+    pdf.setTextColor(...gold); pdf.setFont('helvetica', 'bold'); pdf.text(label.toUpperCase() + ':', col, y + 16);
+    pdf.setTextColor(...cream); pdf.setFont('helvetica', 'normal'); pdf.text(String(val), col + 22, y + 16);
+  });
+  y += 34;
+  
+  function renderSection(title, rows, headers, colWidths) {
+    if (rows.length === 0) return;
+    pdf.setFillColor(...gold); pdf.rect(margin, y, W - margin * 2, 9, 'F');
+    pdf.setFont('helvetica', 'bold'); pdf.setFontSize(10); pdf.setTextColor(...maroon);
+    pdf.text(title, margin + 4, y + 6.5); pdf.setTextColor(...cream); pdf.text(`(${rows.length} registered)`, W - margin - 4, y + 6.5, { align: 'right' });
+    y += 12;
+    pdf.setFillColor(50, 8, 15); pdf.rect(margin, y, W - margin * 2, 9, 'F');
+    pdf.setFont('helvetica', 'bold'); pdf.setFontSize(9); pdf.setTextColor(...gold);
+    let xPos = margin + 3;
+    headers.forEach((h, i) => { const width = colWidths[i]; pdf.text(h.toUpperCase(), xPos + width / 2, y + 6.5, { align: 'center' }); xPos += width; });
+    y += 11;
+    rows.forEach((row, idx) => {
+      if (y > 270) { pdf.addPage(); pdf.setFillColor(...maroon); pdf.rect(0, 0, W, 297, 'F'); y = 16; }
+      pdf.setFillColor(...(idx % 2 === 0 ? [60, 10, 18] : [70, 12, 22])); pdf.rect(margin, y, W - margin * 2, 10, 'F');
+      pdf.setFont('helvetica', 'normal'); pdf.setFontSize(9); pdf.setTextColor(...cream);
+      let cellX = margin + 3;
+      row.forEach((cell, i) => {
+        const width = colWidths[i]; const text = String(cell || '—'); const maxW = width - 4;
+        const t = pdf.getTextWidth(text) > maxW ? pdf.splitTextToSize(text, maxW)[0] + '…' : text;
+        pdf.text(t, cellX + width / 2, y + 6.8, { align: 'center' }); cellX += width;
+      });
+      y += 11;
+    });
+    y += 8;
+  }
+  
+  const passColWidths = [12, 55, 43, 56, 20];
+  renderSection('PASS REGISTRATIONS',
+    sortedPasses.map((d, i) => [String(i + 1), d.fullName || '—', d.cnic || d.phone || '—', resolvePass(d), d.paymentStatus || 'pending']),
+    ['#', 'Full Name', 'CNIC / Phone', 'Pass Type', 'Status'], passColWidths);
+    
+  const pageCount = pdf.internal.getNumberOfPages();
+  for (let i = 1; i <= pageCount; i++) {
+    pdf.setPage(i); pdf.setFillColor(...gold); pdf.rect(0, 290, W, 7, 'F');
+    pdf.setFontSize(7); pdf.setFont('helvetica', 'normal'); pdf.setTextColor(...maroon);
+    pdf.text('RYK MUN — Confidential Event Pass Report', margin, 295);
+    pdf.text(`Page ${i} of ${pageCount}`, W - margin, 295, { align: 'right' });
+  }
+  pdf.save(`RYKMUN_${(ev.name || 'Event').replace(/\s+/g, '_')}_Pass_Report.pdf`);
 }
 
 /* ── Excel Generation ── */
@@ -299,6 +381,7 @@ export default function EventManagement() {
   const [committees,    setCommittees]    = useState([]);
   const [registrations, setRegistrations] = useState([]);
   const [passRegistrations, setPassRegistrations] = useState([]);
+  const [passes,        setPasses]        = useState([]);
   const [payments,      setPayments]      = useState([]);
   const [loading,       setLoading]       = useState(true);
   const [view,          setView]          = useState('list');
@@ -334,6 +417,7 @@ export default function EventManagement() {
   const [filterCommittee,   setFilterCommittee]   = useState('all');
   const [filterSponsorLvl,  setFilterSponsorLvl]  = useState('all');
   const [downloadingPdf,    setDownloadingPdf]    = useState(false);
+  const [downloadingPassPdf,setDownloadingPassPdf]    = useState(false);
   const [downloadingExcel,  setDownloadingExcel]  = useState(false);
   const [generatingCards,   setGeneratingCards]   = useState(false);
   const [reassignModal,     setReassignModal]     = useState(null);
@@ -369,18 +453,20 @@ export default function EventManagement() {
   }
   async function fetchAll() {
     try {
-      const [{ data: evs }, { data: comms }, { data: regs }, { data: pays }, { data: passRegs }] = await Promise.all([
+      const [{ data: evs }, { data: comms }, { data: regs }, { data: pays }, { data: passRegs }, { data: passesData }] = await Promise.all([
         supabase.from('events').select('*').order('created_at', { ascending: false }),
         supabase.from('committees').select('*').order('created_at', { ascending: false }),
         supabase.from('registrations').select('*').order('created_at', { ascending: true }),
         supabase.from('payments').select('*').order('created_at', { ascending: false }),
         supabase.from('pass_registrations').select('*').order('created_at', { ascending: true }),
+        supabase.from('event_passes').select('*').order('created_at', { ascending: false }),
       ]);
       setEvents(keysToCamel(evs || []));
       setCommittees(keysToCamel(comms || []));
       setRegistrations(keysToCamel(regs || []));
       setPayments(keysToCamel(pays || []));
       setPassRegistrations(keysToCamel(passRegs || []));
+      setPasses(keysToCamel(passesData || []));
     } catch (e) { console.error(e); } finally { setLoading(false); }
   }
   useEffect(() => { fetchAll(); }, []);
@@ -806,6 +892,15 @@ export default function EventManagement() {
       generateEventPDF(selectedEvent, evRegs.filter(r => r.type === 'delegate'), evRegs.filter(r => r.type === 'sponsor'), evComms);
       toast.success('PDF downloaded!');
     } catch { toast.error('PDF generation failed'); } finally { setDownloadingPdf(false); }
+  }
+  function handleDownloadPassPdf() {
+    if (!selectedEvent) return;
+    setDownloadingPassPdf(true);
+    const evPassRegs = passRegistrations.filter(r => r.eventId === selectedEvent.id && r.paymentStatus === 'approved');
+    try {
+      generatePassPDF(selectedEvent, evPassRegs, passes);
+      toast.success('Pass PDF downloaded!');
+    } catch { toast.error('Pass PDF generation failed'); } finally { setDownloadingPassPdf(false); }
   }
   function handleDownloadExcel() {
     if (!selectedEvent) return;
@@ -1239,6 +1334,7 @@ export default function EventManagement() {
                 </>
               )}
               <button className="rounded-xl border px-4 py-2.5 text-xs font-semibold text-[#B79143] transition hover:bg-[#B79143]/10 disabled:opacity-50" style={{ borderColor: BORDER_GOLD_MEDIUM }} onClick={handleDownloadPdf} disabled={downloadingPdf}>{downloadingPdf ? '⏳…' : '📄 PDF'}</button>
+              <button className="rounded-xl border px-4 py-2.5 text-xs font-semibold text-[#B79143] transition hover:bg-[#B79143]/10 disabled:opacity-50" style={{ borderColor: BORDER_GOLD_MEDIUM }} onClick={handleDownloadPassPdf} disabled={downloadingPassPdf}>{downloadingPassPdf ? '⏳…' : '🎫 Pass PDF'}</button>
               <button className="rounded-xl border px-4 py-2.5 text-xs font-semibold text-[#B79143] transition hover:bg-[#B79143]/10 disabled:opacity-50" style={{ borderColor: BORDER_GOLD_MEDIUM }} onClick={handleDownloadExcel} disabled={downloadingExcel}>{downloadingExcel ? '⏳…' : '📊 Excel'}</button>
               {canEdit && (
                 <>

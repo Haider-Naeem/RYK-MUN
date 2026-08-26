@@ -110,12 +110,28 @@ export default function UserManagement() {
   useEffect(() => {
     async function load() {
       try {
-        const [{ data: regs }, { data: evs }, { data: comms }] = await Promise.all([
+        const [{ data: regs }, { data: evs }, { data: comms }, { data: passRegs }, { data: passes }] = await Promise.all([
           supabase.from('registrations').select('*').order('created_at', { ascending: false }),
           supabase.from('events').select('id, name'),
           supabase.from('committees').select('id, name'),
+          supabase.from('pass_registrations').select('*').order('created_at', { ascending: false }),
+          supabase.from('event_passes').select('id, name')
         ]);
-        setRegistrations(keysToCamel(regs || []));
+        
+        const mappedPassRegs = (passRegs || []).map(pr => {
+          const pass = passes?.find(p => p.id === pr.pass_id);
+          const ev = evs?.find(e => e.id === pr.event_id);
+          return {
+            ...pr,
+            type: 'pass',
+            event_name: ev?.name || 'Unknown',
+            committeeName: pass?.name || 'Unknown Pass'
+          };
+        });
+        
+        const combined = [...(regs || []), ...mappedPassRegs].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+        
+        setRegistrations(keysToCamel(combined));
         setEvents(evs || []);
         setCommittees(keysToCamel(comms || []));
       } catch (e) { console.error(e); }
@@ -131,6 +147,7 @@ export default function UserManagement() {
 
   function getCommitteeOrCategory(r) {
     if (r.type === 'sponsor') return r.category || '—';
+    if (r.type === 'pass') return r.committeeName || '—';
     if (!r.committee) return '—';
     return committeeMap[r.committee] || r.committeeName || r.committee;
   }
@@ -255,6 +272,7 @@ export default function UserManagement() {
               <option value="sponsor">Sponsors</option>
               <option value="delegation">Delegations</option>
               <option value="delegation_member">Delegation Members</option>
+              <option value="pass">Passes</option>
             </select>
             <select className={selectCls + ' w-full sm:w-[160px] min-w-0 shrink-0'} value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
               <option value="all">All Status</option>
@@ -287,7 +305,7 @@ export default function UserManagement() {
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
               {filtered.map(r => {
                 const name = r.fullName || r.companyName || '—';
-                const typeLabel = r.type === 'delegate' ? '🧑‍💼 Delegate' : r.type === 'delegation' ? '👥 Delegation' : r.type === 'delegation_member' ? '🧑‍💼 Delegation Member' : '🏢 Sponsor';
+                const typeLabel = r.type === 'delegate' ? '🧑‍💼 Delegate' : r.type === 'delegation' ? '👥 Delegation' : r.type === 'delegation_member' ? '🧑‍💼 Delegation Member' : r.type === 'pass' ? '🎫 Pass' : '🏢 Sponsor';
                 
                 return (
                   <div

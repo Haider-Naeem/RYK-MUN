@@ -89,14 +89,21 @@ function getPassRegistrationStatus(pass) {
   if (!pass) return { open: true };
   const today = new Date();
   today.setHours(0, 0, 0, 0);
+  
   if (pass.registrationStartDate) {
-    const start = new Date(pass.registrationStartDate + 'T00:00:00');
+    const [y, m, d] = pass.registrationStartDate.split('-');
+    const start = new Date(y, m - 1, d);
+    start.setHours(0, 0, 0, 0);
     if (today < start) return { open: false, message: 'Pass registration has not opened yet.' };
   }
+  
   if (pass.registrationEndDate) {
-    const end = new Date(pass.registrationEndDate + 'T23:59:59');
+    const [y, m, d] = pass.registrationEndDate.split('-');
+    const end = new Date(y, m - 1, d);
+    end.setHours(23, 59, 59, 999);
     if (today > end) return { open: false, message: 'Pass registration is closed.' };
   }
+  
   return { open: true };
 }
 
