@@ -36,7 +36,7 @@ const RegistrationSection = forwardRef(({
   };
 
   const hasDates = !!(selectedEvent?.startDate || selectedEvent?.date);
-  const isRegistrationOpen = !!(regStatus.open && hasDates && selectedEvent);
+  const isRegistrationOpen = !!(hasDates && selectedEvent && (regStatus?.open || passes?.some(p => getPassRegistrationStatus(p).open)));
 
   const hasRefreshedSeats = useRef(false);
 
@@ -72,9 +72,15 @@ const RegistrationSection = forwardRef(({
             </div>
           )}
 
-          {hasDates && !regStatus.open && (
+          {hasDates && !regStatus.open && !isRegistrationOpen && (
             <div className="rounded-lg border border-amber-500/30 bg-amber-950/25 px-3 py-2 text-center text-xs text-amber-200">
               {regStatus.message || 'Registration is currently unavailable.'}
+            </div>
+          )}
+          
+          {hasDates && !regStatus.open && isRegistrationOpen && (
+            <div className="rounded-lg border border-amber-500/30 bg-amber-950/25 px-3 py-2 text-center text-xs text-amber-200">
+              Event registration is closed, but you can still register for available Event Passes.
             </div>
           )}
 
