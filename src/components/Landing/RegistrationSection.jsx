@@ -18,7 +18,7 @@ const RegistrationSection = forwardRef(({
   currentUser, showWizard, wizardSubmitted, wizardStep, selectedRole,
   regStatus, seatInfo, entryFee, wizardLoading,
   formData, setFormData, paymentData, setPaymentData,
-  committees, selectedEvent,
+  committees, passes, selectedEvent,
   onRoleSelect, onValidateStep, onContinue, onSubmit, onReset,
   profileInputRef, receiptInputRef,
   onProfileImage, onReceiptFile,
@@ -178,7 +178,7 @@ const RegistrationSection = forwardRef(({
                         </div>
                         <span className="mt-1 text-[0.55rem] sm:text-[0.6rem] font-bold uppercase tracking-[0.15em] transition-colors duration-300"
                           style={{ color: wizardStep >= step.id ? C.gold : C.textDim }}>
-                          {step.label}
+                          {step.id === 3 && selectedRole === 'pass' ? 'Event' : step.label}
                         </span>
                       </div>
                       {i < REGISTRATION_STEPS.length - 1 && (
@@ -202,6 +202,7 @@ const RegistrationSection = forwardRef(({
                     { role: 'delegate', icon: '🧑‍💼', title: 'Delegate', desc: 'Join a committee, represent a nation, and engage in diplomatic debate.', disabled: seatInfo.isFull && seatInfo.totalSeats > 0 },
                     { role: 'sponsor', icon: '🏢', title: 'Sponsor', desc: 'Support the conference as an organizational partner and gain visibility.', disabled: false },
                     { role: 'delegation', icon: '👥', title: 'Delegation', desc: 'Register a group of 6-8 delegates for the conference.', disabled: false },
+                    { role: 'pass', icon: '🎟️', title: 'Event Pass', desc: 'Purchase a pass to attend socials and specific events.', disabled: false },
                   ].map(({ role, icon, title, desc, disabled }) => (
                     <button key={role}
                       onClick={() => onRoleSelect(role)}
@@ -251,9 +252,19 @@ const RegistrationSection = forwardRef(({
                         />
                       </div>
                       <div>
-                        <label className={labelCls}>CNIC</label>
+                        <label className={labelCls}>CNIC *</label>
                         <input className={inputCls} placeholder="XXXXX-XXXXXXX-X"
-                          value={formData.cnic} onChange={e => setFormData({ ...formData, cnic: e.target.value })} />
+                          value={formData.cnic || ''} onChange={e => {
+                            let val = e.target.value.replace(/\D/g, '');
+                            if (val.length > 13) val = val.slice(0, 13);
+                            let formatted = val;
+                            if (val.length > 5 && val.length <= 12) {
+                              formatted = val.slice(0, 5) + '-' + val.slice(5);
+                            } else if (val.length > 12) {
+                              formatted = val.slice(0, 5) + '-' + val.slice(5, 12) + '-' + val.slice(12);
+                            }
+                            setFormData({ ...formData, cnic: formatted });
+                          }} />
                       </div>
                     </div>
                   )}
@@ -278,10 +289,10 @@ const RegistrationSection = forwardRef(({
             {wizardStep === 3 && !wizardSubmitted && isRegistrationOpen && (
               <div className="animate-fadeIn">
                 <h3 className="text-base sm:text-lg font-bold text-center mb-1" style={{ color: C.textPrimary }}>
-                  {selectedRole === 'delegate' ? 'Select Your Committee' : selectedRole === 'delegation' ? 'Delegation Members' : 'Sponsorship Package'}
+                  {selectedRole === 'delegate' ? 'Select Your Committee' : selectedRole === 'delegation' ? 'Delegation Members' : selectedRole === 'pass' ? 'Select Your Pass' : 'Sponsorship Package'}
                 </h3>
                 <p className="text-center text-xs mb-4" style={{ color: C.textSecondary }}>
-                  {selectedRole === 'delegate' ? 'Choose the committee where you want to make an impact.' : selectedRole === 'delegation' ? `Enter details for all ${formData.delegateCount} delegates.` : 'Select your preferred sponsorship level.'}
+                  {selectedRole === 'delegate' ? 'Choose the committee where you want to make an impact.' : selectedRole === 'delegation' ? `Enter details for all ${formData.delegateCount} delegates.` : selectedRole === 'pass' ? 'Select the type of pass you wish to purchase.' : 'Select your preferred sponsorship level.'}
                 </p>
 
                 {selectedRole === 'delegation' ? (
@@ -305,7 +316,18 @@ const RegistrationSection = forwardRef(({
                               <div><label className={labelCls}>Full Name *</label><input className={inputCls} value={d.fullName} onChange={e => updateDelegate('fullName', e.target.value)} /></div>
                               <div><label className={labelCls}>Email *</label><input className={inputCls} value={d.email} onChange={e => updateDelegate('email', e.target.value)} /></div>
                               <div><label className={labelCls}>Phone *</label><input className={inputCls} value={d.phone} onChange={e => updateDelegate('phone', e.target.value)} /></div>
-                              <div><label className={labelCls}>CNIC</label><input className={inputCls} value={d.cnic} onChange={e => updateDelegate('cnic', e.target.value)} /></div>
+                              <div><label className={labelCls}>CNIC *</label><input className={inputCls} value={d.cnic || ''} placeholder="XXXXX-XXXXXXX-X"
+                                onChange={e => {
+                                  let val = e.target.value.replace(/\D/g, '');
+                                  if (val.length > 13) val = val.slice(0, 13);
+                                  let formatted = val;
+                                  if (val.length > 5 && val.length <= 12) {
+                                    formatted = val.slice(0, 5) + '-' + val.slice(5);
+                                  } else if (val.length > 12) {
+                                    formatted = val.slice(0, 5) + '-' + val.slice(5, 12) + '-' + val.slice(12);
+                                  }
+                                  updateDelegate('cnic', formatted);
+                                }} /></div>
                             </div>
                             <div className="space-y-3">
                               <div>
@@ -389,6 +411,36 @@ const RegistrationSection = forwardRef(({
                       </div>
                     )}
                   </>
+                ) : selectedRole === 'pass' ? (
+                  <div className="max-w-xl mx-auto space-y-3">
+                    {passes?.length === 0 ? (
+                      <div className="text-center py-8" style={{ color: C.textSecondary }}>No passes available currently.</div>
+                    ) : (
+                      passes?.map?.((pass, i) => {
+                        const isFull = pass.soldSeats >= pass.totalSeats && pass.totalSeats > 0;
+                        return (
+                          <button key={i} onClick={() => !isFull && setFormData({ ...formData, committee: pass.id })}
+                            disabled={isFull}
+                            className={`w-full rounded-lg border p-4 flex flex-col transition-all duration-300 text-left ${isFull ? 'opacity-50 cursor-not-allowed grayscale' : ''}`}
+                            style={{
+                              borderColor: formData.committee === pass.id ? C.gold : C.borderGold,
+                              background: formData.committee === pass.id
+                                ? 'linear-gradient(90deg, rgba(183,145,67,0.12), rgba(139,26,26,0.08))' : C.bgDark,
+                            }}>
+                            <div className="flex justify-between items-center w-full mb-2">
+                              <div className="text-base font-bold" style={{ color: C.textPrimary }}>
+                                {pass.name}
+                                {isFull && <span className="ml-2 text-xs text-red-400 font-bold tracking-widest">(SOLD OUT)</span>}
+                              </div>
+                              <div className="text-lg font-bold" style={{ color: C.gold }}>{pass.currency || 'PKR'} {Number(pass.price).toLocaleString()}</div>
+                            </div>
+                            {pass.performers && <div className="text-xs mb-1" style={{ color: C.textSecondary }}><strong style={{ color: C.gold }}>Performers:</strong> {pass.performers}</div>}
+                            {pass.timing && <div className="text-xs" style={{ color: C.textSecondary }}><strong style={{ color: C.gold }}>Timing:</strong> {pass.timing}</div>}
+                          </button>
+                        )
+                      })
+                    )}
+                  </div>
                 ) : (
                   <div className="max-w-xl mx-auto space-y-2">
                     {selectedEvent?.sponsorPackages?.map?.((pkg, i) => (
@@ -415,14 +467,27 @@ const RegistrationSection = forwardRef(({
                       toast.error('Please enter the country or personality you wish to represent.');
                       return;
                     }
+                    if (selectedRole === 'pass' && !formData.committee) {
+                      toast.error('Please select an event pass.');
+                      return;
+                    }
                     if (selectedRole === 'delegation') {
                       const activeDelegates = formData.delegates.slice(0, formData.delegateCount);
                       for (let i = 0; i < activeDelegates.length; i++) {
                         const d = activeDelegates[i];
-                        if (!d.fullName || !d.email || !d.committee || !d.countryPersonality || !d.profileImage) {
+                        if (!d.fullName || !d.email || !d.committee || !d.countryPersonality || !d.profileImage || !d.cnic) {
                           toast.error(`Please fill all required fields and upload photo for Delegate ${i + 1}`);
                           return;
                         }
+                        if (d.cnic.length !== 15) {
+                          toast.error(`Please enter a valid 13-digit CNIC for Delegate ${i + 1} (e.g. XXXXX-XXXXXXX-X)`);
+                          return;
+                        }
+                      }
+                    } else if (selectedRole !== 'sponsor') {
+                      if (!formData.cnic || formData.cnic.length !== 15) {
+                        toast.error('Please enter a valid 13-digit CNIC (e.g. XXXXX-XXXXXXX-X)');
+                        return;
                       }
                     }
                     onContinue();
@@ -444,10 +509,13 @@ const RegistrationSection = forwardRef(({
                       style={{ background: 'linear-gradient(135deg, rgba(183,145,67,0.08), rgba(139,26,26,0.05))', borderColor: C.borderStrong }}>
                       <h4 className="text-xs font-bold uppercase tracking-wider mb-2" style={{ color: C.gold }}>Registration Summary</h4>
                       <div className="space-y-1.5 text-xs">
-                        <SummaryRow label="Role" value={selectedRole === 'delegate' ? '🧑‍💼 Delegate' : selectedRole === 'delegation' ? '👥 Delegation' : '🏢 Sponsor'} />
+                        <SummaryRow label="Role" value={selectedRole === 'delegate' ? '🧑‍💼 Delegate' : selectedRole === 'delegation' ? '👥 Delegation' : selectedRole === 'pass' ? '🎟️ Event Pass' : '🏢 Sponsor'} />
                         <SummaryRow label="Name" value={formData.fullName} />
                         {selectedRole === 'delegation' && (
                           <SummaryRow label="Delegates" value={`${formData.delegateCount} Members`} />
+                        )}
+                        {selectedRole === 'pass' && (
+                          <SummaryRow label="Pass" value={passes?.find?.(p => p.id === formData.committee)?.name || 'Selected Pass'} />
                         )}
                         {selectedRole === 'delegate' && formData.committee && (
                           <SummaryRow label="Committee" value={committees.find(c => c.id === formData.committee)?.name || 'Selected'} />

@@ -7,6 +7,7 @@ import { ProtectedRoute, AdminRoute } from './components/Shared/ProtectedRoute';
 
 // Landing
 import Landing from './components/Landing/Landing';
+import PassVerification from './components/Landing/PassVerification';
 
 // User
 import UserDashboard from './components/User/UserDashboard';
@@ -71,12 +72,14 @@ export default function App() {
           {/* Public - Landing page accessible to everyone */}
           <Route path="/" element={<Landing />} />
           <Route path="/landing" element={<Navigate to="/" replace />} />
+          <Route path="/verify-pass/:qrToken" element={<PassVerification />} />
 
           {/* Post-login redirect hub - only use this for explicit redirects */}
           <Route path="/app" element={<AppRedirect />} />
 
           {/* User routes - require authentication */}
-          
+          <Route path="/dashboard" element={<ProtectedRoute><UserDashboard /></ProtectedRoute>} />
+          <Route path="/register-event" element={<ProtectedRoute><EventRegistration /></ProtectedRoute>} />
           <Route path="/my-payments" element={<ProtectedRoute><MyPayments /></ProtectedRoute>} />
           <Route path="/profile" element={<ProtectedRoute><UserProfile /></ProtectedRoute>} />
           <Route path="/my-card" element={<ProtectedRoute><DigitalCard /></ProtectedRoute>} />

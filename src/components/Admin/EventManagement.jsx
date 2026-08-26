@@ -5,6 +5,8 @@ import { usePermissions } from '../../hooks/usePermissions';
 import { jsPDF } from 'jspdf';
 import * as XLSX from 'xlsx';
 import Sidebar from '../Shared/Sidebar';
+import PassManagement from './PassManagement';
+import PassRegistrations from './PassRegistrations';
 import { formatDate, formatCurrency, getInitials, generateQRToken } from '../../utils/helpers';
 import { uploadToR2 } from '../../utils/r2';
 import { keysToCamel } from '../../utils/cache';
@@ -195,7 +197,7 @@ function generateEventPDF(ev, delegates, sponsors, committees) {
   const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   const W = 210, margin = 18; let y = 0;
   const maroon = [74, 10, 18], gold = [201, 168, 76], cream = [245, 230, 192];
-  const commMap = Object.fromEntries(committees.map(c => [c.id, c.name]));
+  const commMap = Object.fromEntries(committees.map(c => [c.id, c.abbr || (c.name ? c.name.split(' ').map(n => n[0]).join('').toUpperCase() : '')]));
   function resolveCommittee(reg) { return !reg.committee ? '—' : commMap[reg.committee] || reg.committeeName || reg.committee; }
   const sortedDelegates = [...delegates].sort((a, b) => {
     const commA = resolveCommittee(a).toLowerCase();
@@ -250,10 +252,10 @@ function generateEventPDF(ev, delegates, sponsors, committees) {
     });
     y += 8;
   }
-  const delegateColWidths = [12, 52, 40, 38, 32];
+  const delegateColWidths = [8, 40, 30, 35, 33, 28];
   renderSection('DELEGATE REGISTRATIONS',
-    sortedDelegates.map((d, i) => [String(i + 1), d.fullName || '—', d.countryPersonality || '—', resolveCommittee(d), d.paymentStatus || 'pending']),
-    ['#', 'Full Name', 'Country/Personality', 'Committee', 'Status'], delegateColWidths);
+    sortedDelegates.map((d, i) => [String(i + 1), d.fullName || '—', d.cnic || '—', d.countryPersonality || '—', resolveCommittee(d), d.paymentStatus || 'pending']),
+    ['#', 'Full Name', 'CNIC', 'Country/Pers.', 'Committee', 'Status'], delegateColWidths);
   const pageCount = pdf.internal.getNumberOfPages();
   for (let i = 1; i <= pageCount; i++) {
     pdf.setPage(i); pdf.setFillColor(...gold); pdf.rect(0, 290, W, 7, 'F');
@@ -266,11 +268,11 @@ function generateEventPDF(ev, delegates, sponsors, committees) {
 
 /* ── Excel Generation ── */
 function generateEventExcel(ev, delegates, sponsors, committees) {
-  const commMap = Object.fromEntries(committees.map(c => [c.id, c.name]));
+  const commMap = Object.fromEntries(committees.map(c => [c.id, c.abbr || (c.name ? c.name.split(' ').map(n => n[0]).join('').toUpperCase() : '')]));
   function resolveCommittee(reg) { return !reg.committee ? '—' : commMap[reg.committee] || reg.committeeName || reg.committee; }
   const wb = XLSX.utils.book_new();
   const delegateData = delegates.map((d, i) => ({
-    '#': i + 1, 'Full Name': d.fullName || '', 'Country/Personality': d.countryPersonality || '',
+    '#': i + 1, 'Full Name': d.fullName || '', 'CNIC': d.cnic || '', 'Country/Personality': d.countryPersonality || '',
     'Committee': resolveCommittee(d), 'Email': d.email || '', 'Phone': d.phone || '',
     'Payment Status': d.paymentStatus || 'pending', 'Booking Time': formatBookingTime(d.createdAt),
   }));
@@ -296,6 +298,7 @@ export default function EventManagement() {
   const [events,        setEvents]        = useState([]);
   const [committees,    setCommittees]    = useState([]);
   const [registrations, setRegistrations] = useState([]);
+  const [passRegistrations, setPassRegistrations] = useState([]);
   const [payments,      setPayments]      = useState([]);
   const [loading,       setLoading]       = useState(true);
   const [view,          setView]          = useState('list');
@@ -366,16 +369,18 @@ export default function EventManagement() {
   }
   async function fetchAll() {
     try {
-      const [{ data: evs }, { data: comms }, { data: regs }, { data: pays }] = await Promise.all([
+      const [{ data: evs }, { data: comms }, { data: regs }, { data: pays }, { data: passRegs }] = await Promise.all([
         supabase.from('events').select('*').order('created_at', { ascending: false }),
         supabase.from('committees').select('*').order('created_at', { ascending: false }),
         supabase.from('registrations').select('*').order('created_at', { ascending: true }),
         supabase.from('payments').select('*').order('created_at', { ascending: false }),
+        supabase.from('pass_registrations').select('*').order('created_at', { ascending: true }),
       ]);
       setEvents(keysToCamel(evs || []));
       setCommittees(keysToCamel(comms || []));
       setRegistrations(keysToCamel(regs || []));
       setPayments(keysToCamel(pays || []));
+      setPassRegistrations(keysToCamel(passRegs || []));
     } catch (e) { console.error(e); } finally { setLoading(false); }
   }
   useEffect(() => { fetchAll(); }, []);
@@ -403,6 +408,19 @@ export default function EventManagement() {
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'registrations' }, payload => {
         setRegistrations(prev => prev.map(r => r.id === payload.new.id ? keysToCamel(payload.new) : r));
         refetchCommittees();
+      })
+      .subscribe();
+    return () => supabase.removeChannel(channel);
+  }, []);
+
+  // ── Realtime: pass_registrations ──
+  useEffect(() => {
+    const channel = supabase.channel('em-pass-registrations-realtime')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'pass_registrations' }, payload => {
+        setPassRegistrations(prev => { const exists = prev.some(r => r.id === payload.new.id); return exists ? prev : [...prev, keysToCamel(payload.new)]; });
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'pass_registrations' }, payload => {
+        setPassRegistrations(prev => prev.map(r => r.id === payload.new.id ? keysToCamel(payload.new) : r));
       })
       .subscribe();
     return () => supabase.removeChannel(channel);
@@ -702,6 +720,31 @@ export default function EventManagement() {
     } catch (e) { toast.error('Card generation failed: ' + e.message); } finally { setGeneratingCards(false); }
   }
 
+  async function handleGeneratePasses() {
+    if (!canEdit || !selectedEvent) return;
+    setGeneratingCards(true);
+    try {
+      const { data: existing } = await supabase.from('qr_codes').select('pass_registration_id').eq('event_id', selectedEvent.id).not('pass_registration_id', 'is', null);
+      const existingRegIds = new Set((existing || []).map(q => q.pass_registration_id));
+      const evPassRegs = passRegistrations.filter(r => r.eventId === selectedEvent.id && r.paymentStatus === 'approved');
+      const toGenerate = evPassRegs.filter(r => !existingRegIds.has(r.id));
+      if (toGenerate.length === 0) { toast.success('All approved passes already have cards!'); return; }
+      
+      const paymentByReg = Object.fromEntries(payments.filter(p => p.eventId === selectedEvent.id && p.passRegistrationId).map(p => [p.passRegistrationId, p.id]));
+      const rows = toGenerate.map(reg => ({
+        user_id: reg.userId,
+        event_id: reg.eventId,
+        pass_registration_id: reg.id,
+        payment_id: paymentByReg[reg.id] || null,
+        qr_token: generateQRToken(),
+        is_used: false,
+      }));
+      const { error } = await supabase.from('qr_codes').insert(rows);
+      if (error) throw error;
+      toast.success(`🎫 Generated ${toGenerate.length} digital pass${toGenerate.length !== 1 ? 'es' : ''}!`);
+    } catch (e) { toast.error('Pass generation failed: ' + e.message); } finally { setGeneratingCards(false); }
+  }
+
   async function handleGenerateDelegationCards(delegationId) {
     if (!canEdit || !selectedEvent) return;
     setGeneratingCards(true);
@@ -757,7 +800,7 @@ export default function EventManagement() {
   function handleDownloadPdf() {
     if (!selectedEvent) return;
     setDownloadingPdf(true);
-    const evRegs  = registrations.filter(r => r.eventId === selectedEvent.id);
+    const evRegs  = registrations.filter(r => r.eventId === selectedEvent.id && r.paymentStatus === 'approved');
     const evComms = committees.filter(c => c.eventId === selectedEvent.id);
     try {
       generateEventPDF(selectedEvent, evRegs.filter(r => r.type === 'delegate'), evRegs.filter(r => r.type === 'sponsor'), evComms);
@@ -767,7 +810,7 @@ export default function EventManagement() {
   function handleDownloadExcel() {
     if (!selectedEvent) return;
     setDownloadingExcel(true);
-    const evRegs  = registrations.filter(r => r.eventId === selectedEvent.id);
+    const evRegs  = registrations.filter(r => r.eventId === selectedEvent.id && r.paymentStatus === 'approved');
     const evComms = committees.filter(c => c.eventId === selectedEvent.id);
     try {
       generateEventExcel(selectedEvent, evRegs.filter(r => r.type === 'delegate'), evRegs.filter(r => r.type === 'sponsor'), evComms);
@@ -1152,6 +1195,8 @@ export default function EventManagement() {
       { key: 'delegations',label: `Delegations (${evDelegations.length})` },
       { key: 'sponsors',   label: `Sponsors (${evSponsors.length})` },
       { key: 'committees', label: `Committees (${evComms.length})` },
+      { key: 'passes',     label: `Passes` },
+      { key: 'pass_regs',  label: `Pass Registrations` },
       { key: 'packages',   label: 'Packages' },
       { key: 'payments',   label: 'Payment Methods' },
     ];
@@ -1176,13 +1221,22 @@ export default function EventManagement() {
             </div>
             <div className="flex flex-wrap gap-2">
               {canEdit && (
-                <button
-                  className="rounded-xl bg-gradient-to-r from-[#8E6B2F] via-[#B79143] to-[#D7B46A] px-4 py-2.5 text-xs font-semibold text-[#2A0B12] transition hover:scale-[1.02] disabled:opacity-50"
-                  onClick={handleGenerateCards}
-                  disabled={generatingCards || approvedCount === 0}
-                >
-                  {generatingCards ? '⏳…' : `🎫 Cards (${approvedCount})`}
-                </button>
+                <>
+                  <button
+                    className="rounded-xl bg-gradient-to-r from-[#8E6B2F] via-[#B79143] to-[#D7B46A] px-4 py-2.5 text-xs font-semibold text-[#2A0B12] transition hover:scale-[1.02] disabled:opacity-50"
+                    onClick={handleGenerateCards}
+                    disabled={generatingCards || approvedCount === 0}
+                  >
+                    {generatingCards ? '⏳…' : `🎫 Cards (${approvedCount})`}
+                  </button>
+                  <button
+                    className="rounded-xl bg-gradient-to-r from-[#8b1a1a] via-[#B79143] to-[#D7B46A] px-4 py-2.5 text-xs font-semibold text-white transition hover:scale-[1.02] disabled:opacity-50"
+                    onClick={handleGeneratePasses}
+                    disabled={generatingCards || passRegistrations.filter(r => r.eventId === ev.id && r.paymentStatus === 'approved').length === 0}
+                  >
+                    {generatingCards ? '⏳…' : `🎫 Passes (${passRegistrations.filter(r => r.eventId === ev.id && r.paymentStatus === 'approved').length})`}
+                  </button>
+                </>
               )}
               <button className="rounded-xl border px-4 py-2.5 text-xs font-semibold text-[#B79143] transition hover:bg-[#B79143]/10 disabled:opacity-50" style={{ borderColor: BORDER_GOLD_MEDIUM }} onClick={handleDownloadPdf} disabled={downloadingPdf}>{downloadingPdf ? '⏳…' : '📄 PDF'}</button>
               <button className="rounded-xl border px-4 py-2.5 text-xs font-semibold text-[#B79143] transition hover:bg-[#B79143]/10 disabled:opacity-50" style={{ borderColor: BORDER_GOLD_MEDIUM }} onClick={handleDownloadExcel} disabled={downloadingExcel}>{downloadingExcel ? '⏳…' : '📊 Excel'}</button>
@@ -1642,6 +1696,16 @@ export default function EventManagement() {
                   })
                 }
               </div>
+            )}
+
+            {/* ── Passes Tab ── */}
+            {detailTab === 'passes' && (
+              <PassManagement event={ev} />
+            )}
+
+            {/* ── Pass Registrations Tab ── */}
+            {detailTab === 'pass_regs' && (
+              <PassRegistrations eventId={ev.id} />
             )}
 
             {/* ── Packages Tab ── */}

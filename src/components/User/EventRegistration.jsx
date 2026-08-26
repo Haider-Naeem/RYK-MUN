@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { supabase } from '../../supabase/config';
 import { useAuth } from '../../hooks/useAuth';
 import Sidebar, { DelegateMobileBar, adminPadClass } from '../Shared/Sidebar';
@@ -71,12 +71,13 @@ function formatDateRange(startDate, endDate) {
 export default function EventRegistration() {
   const { currentUser, userProfile } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const padClass = adminPadClass(userProfile);
 
   const [events, setEvents] = useState([]);
   const [committees, setCommittees] = useState([]);
   const [selectedEvent, setSelectedEvent] = useState(null);
-  const [regType, setRegType] = useState(null);
+  const [regType, setRegType] = useState(location.state?.type || null);
   const [loading, setLoading] = useState(false);
   const [submittedRegId, setSubmittedRegId] = useState(null);
 
@@ -86,6 +87,10 @@ export default function EventRegistration() {
   const [sponsorForm, setSponsorForm] = useState({
     companyName: '', contactPerson: '', phone: '', email: '', category: ''
   });
+  const [passForm, setPassForm] = useState({
+    fullName: '', email: '', phone: '', cnic: '', passId: ''
+  });
+  const [passes, setPasses] = useState([]);
 
   const [receiptFile, setReceiptFile] = useState(null);
   const [receiptPreview, setReceiptPreview] = useState(null);
@@ -99,11 +104,17 @@ export default function EventRegistration() {
       .catch(console.error);
   }, []);
 
-  // ── Load committees when event is selected ──
+  // ── Load committees and passes when event is selected ──
   useEffect(() => {
     if (!selectedEvent) return;
     if (userProfile) {
       setDelegateForm(f => ({
+        ...f,
+        fullName: f.fullName || userProfile.fullName || '',
+        email: f.email || userProfile.email || '',
+        phone: f.phone || userProfile.phone || '',
+      }));
+      setPassForm(f => ({
         ...f,
         fullName: f.fullName || userProfile.fullName || '',
         email: f.email || userProfile.email || '',
@@ -115,6 +126,14 @@ export default function EventRegistration() {
       .select('*')
       .eq('event_id', selectedEvent.id)
       .then(({ data }) => setCommittees(keysToCamel(data || [])))
+      .catch(console.error);
+
+    supabase
+      .from('event_passes')
+      .select('*')
+      .eq('event_id', selectedEvent.id)
+      .eq('status', 'active')
+      .then(({ data }) => setPasses(keysToCamel(data || [])))
       .catch(console.error);
   }, [selectedEvent, userProfile]);
 
@@ -140,6 +159,12 @@ export default function EventRegistration() {
   function getSeats(c) { return c.totalSeats ?? c.seats ?? 0; }
 
   function eventSeatInfo(comms) {
+    if (selectedEvent?.totalSeats > 0) {
+      return {
+        totalSeats: selectedEvent.totalSeats,
+        totalFilled: selectedEvent.filledSeats || 0
+      };
+    }
     const totalSeats = comms.reduce((s, c) => s + (getSeats(c) || 0), 0);
     const totalFilled = comms.reduce((s, c) => s + (c.filledSeats || 0), 0);
     return { totalSeats, totalFilled };
@@ -169,6 +194,9 @@ export default function EventRegistration() {
       if (!delegateForm.fullName || !delegateForm.email || !delegateForm.phone) {
         toast.error('Name, email and phone are required'); return false;
       }
+      if (!delegateForm.cnic || delegateForm.cnic.length !== 15) {
+        toast.error('Please enter a valid 13-digit CNIC (e.g. XXXXX-XXXXXXX-X)'); return false;
+      }
       if (!delegateForm.committee) {
         toast.error('Please select a committee'); return false;
       }
@@ -176,6 +204,16 @@ export default function EventRegistration() {
       if (totalSeats > 0 && totalFilled >= totalSeats) {
         toast.error('This event is fully booked. No seats remaining.');
         return false;
+      }
+    } else if (regType === 'pass') {
+      if (!passForm.fullName || !passForm.email || !passForm.phone) {
+        toast.error('Name, email and phone are required'); return false;
+      }
+      if (!passForm.cnic || passForm.cnic.length !== 15) {
+        toast.error('Please enter a valid 13-digit CNIC (e.g. XXXXX-XXXXXXX-X)'); return false;
+      }
+      if (!passForm.passId) {
+        toast.error('Please select a pass'); return false;
       }
     } else {
       if (!sponsorForm.companyName || !sponsorForm.contactPerson || !sponsorForm.phone) {
@@ -202,7 +240,7 @@ export default function EventRegistration() {
         .eq('event_id', selectedEvent.id);
       const freshComms = keysToCamel(freshCommsRaw || []);
 
-      if (regType === 'delegate') {
+      if (regType === 'delegate' || regType === 'pass') {
         const { totalSeats, totalFilled } = eventSeatInfo(freshComms);
         if (totalSeats > 0 && totalFilled >= totalSeats) {
           toast.error('Sorry, this event is fully booked! No seats remaining.');
@@ -223,7 +261,49 @@ export default function EventRegistration() {
       const committee = freshComms.find(c => c.id === delegateForm.committee);
       const entryFee = regType === 'sponsor'
         ? (selectedEvent.sponsorPackages?.find(p => p.name === sponsorForm.category)?.amount || 0)
-        : (selectedEvent.entryFees || 0);
+        : regType === 'pass'
+          ? (passes.find(p => p.id === passForm.passId)?.price || 0)
+          : (selectedEvent.entryFees || 0);
+
+
+      if (regType === 'pass') {
+        const pass = passes.find(p => p.id === passForm.passId);
+        const { data: regData, error: regErr } = await supabase.from('pass_registrations').insert({
+          pass_id: pass.id,
+          event_id: selectedEvent.id,
+          user_id: currentUser.id,
+          full_name: passForm.fullName,
+          email: passForm.email,
+          phone: passForm.phone,
+          cnic: passForm.cnic,
+          payment_status: 'pending',
+          status: 'pending'
+        }).select().single();
+        if (regErr) throw regErr;
+
+        const { error: payErr } = await supabase.from('payments').insert({
+          user_id: currentUser.id,
+          pass_registration_id: regData.id,
+          event_id: selectedEvent.id,
+          event_name: selectedEvent.name,
+          registration_type: 'pass',
+          payment_method: paymentMethod.label,
+          receipt_url: receiptUrl,
+          status: 'pending',
+          amount: entryFee,
+        });
+        if (payErr) throw payErr;
+
+        // Try to increment event seats
+        const { error: rpcErr } = await supabase.rpc('increment_event_seats', { p_event_id: selectedEvent.id });
+        if (rpcErr) console.error('increment_event_seats error:', rpcErr);
+
+        invalidateCollection('payments');
+        setSubmittedRegId(regData.id);
+        toast.success('Pass registration submitted!');
+        setLoading(false);
+        return;
+      }
 
       const regRow = {
         user_id: currentUser.id,
@@ -400,11 +480,10 @@ export default function EventRegistration() {
                       <img src={banner} alt={ev.name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" onError={(e) => { e.target.src = DEFAULT_BANNER; }} />
                       <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-[rgba(68,7,19,0.9)]" />
                       <div className="absolute top-3 right-3">
-                        <span className={`rounded-lg px-3 py-1 text-[0.65rem] font-bold uppercase tracking-wider ${
-                          ev.status === 'active'
+                        <span className={`rounded-lg px-3 py-1 text-[0.65rem] font-bold uppercase tracking-wider ${ev.status === 'active'
                             ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-400/30'
                             : 'bg-amber-500/20 text-amber-200 border border-amber-400/30'
-                        }`}>
+                          }`}>
                           {ev.status}
                         </span>
                       </div>
@@ -475,11 +554,10 @@ export default function EventRegistration() {
 
               <div className={`${panelCls}`}>
                 <div className="flex items-center gap-3 mb-4">
-                  <span className={`rounded-lg px-3 py-1 text-[0.65rem] font-bold uppercase tracking-wider ${
-                    selectedEvent.status === 'active'
+                  <span className={`rounded-lg px-3 py-1 text-[0.65rem] font-bold uppercase tracking-wider ${selectedEvent.status === 'active'
                       ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-400/30'
                       : 'bg-amber-500/20 text-amber-200 border border-amber-400/30'
-                  }`}>
+                    }`}>
                     {selectedEvent.status}
                   </span>
                   {eventFull && (
@@ -581,13 +659,12 @@ export default function EventRegistration() {
                     type="button"
                     onClick={() => setRegType('delegate')}
                     disabled={eventFull}
-                    className={`rounded-2xl border p-6 sm:p-8 text-center transition-all duration-300 relative ${
-                      eventFull
+                    className={`rounded-2xl border p-6 sm:p-8 text-center transition-all duration-300 relative ${eventFull
                         ? 'border-red-500/20 bg-red-950/10 opacity-60 cursor-not-allowed'
                         : regType === 'delegate'
-                        ? 'border-[#B79143] bg-gradient-to-br from-[#B79143]/10 to-[#D7B46A]/5 shadow-lg shadow-[#B79143]/10 scale-[1.02]'
-                        : 'border-[rgba(183,145,67,0.2)] bg-[rgba(68,7,19,0.4)] hover:border-[#B79143]/40 hover:bg-[rgba(68,7,19,0.6)]'
-                    }`}
+                          ? 'border-[#B79143] bg-gradient-to-br from-[#B79143]/10 to-[#D7B46A]/5 shadow-lg shadow-[#B79143]/10 scale-[1.02]'
+                          : 'border-[rgba(183,145,67,0.2)] bg-[rgba(68,7,19,0.4)] hover:border-[#B79143]/40 hover:bg-[rgba(68,7,19,0.6)]'
+                      }`}
                   >
                     {eventFull && (
                       <div className="absolute top-3 right-3">
@@ -603,15 +680,27 @@ export default function EventRegistration() {
                   <button
                     type="button"
                     onClick={() => setRegType('sponsor')}
-                    className={`rounded-2xl border p-6 sm:p-8 text-center transition-all duration-300 ${
-                      regType === 'sponsor'
+                    className={`rounded-2xl border p-6 sm:p-8 text-center transition-all duration-300 ${regType === 'sponsor'
                         ? 'border-[#B79143] bg-gradient-to-br from-[#B79143]/10 to-[#D7B46A]/5 shadow-lg shadow-[#B79143]/10 scale-[1.02]'
                         : 'border-[rgba(183,145,67,0.2)] bg-[rgba(68,7,19,0.4)] hover:border-[#B79143]/40 hover:bg-[rgba(68,7,19,0.6)]'
-                    }`}
+                      }`}
                   >
                     <div className="text-5xl mb-4">🏢</div>
                     <div className="text-lg font-bold text-[#F8F3EA] mb-2">Sponsor</div>
                     <div className="text-sm text-[#b89b84]">Support the event as a corporate sponsor.</div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setRegType('pass')}
+                    className={`rounded-2xl border p-6 sm:p-8 text-center transition-all duration-300 ${regType === 'pass'
+                        ? 'border-[#B79143] bg-gradient-to-br from-[#B79143]/10 to-[#D7B46A]/5 shadow-lg shadow-[#B79143]/10 scale-[1.02]'
+                        : 'border-[rgba(183,145,67,0.2)] bg-[rgba(68,7,19,0.4)] hover:border-[#B79143]/40 hover:bg-[rgba(68,7,19,0.6)]'
+                      }`}
+                  >
+                    <div className="text-5xl mb-4">🎟️</div>
+                    <div className="text-lg font-bold text-[#F8F3EA] mb-2">Event Pass</div>
+                    <div className="text-sm text-[#b89b84]">Register for a social or visitor pass.</div>
                   </button>
                 </div>
               </div>
@@ -625,7 +714,7 @@ export default function EventRegistration() {
         <section className={sectionCls}>
           <div className="relative z-10 w-full max-w-6xl mx-auto">
             <h2 className="text-xl font-bold text-[#F8F3EA] mb-8">
-              {regType === 'delegate' ? '🧑‍💼 Delegate Registration' : '🏢 Sponsor Registration'}
+              {regType === 'delegate' ? '🧑‍💼 Delegate Registration' : regType === 'pass' ? '🎟️ Event Pass Registration' : '🏢 Sponsor Registration'}
             </h2>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -648,8 +737,18 @@ export default function EventRegistration() {
                       <input className={inputCls} placeholder="+92 300 0000000" value={delegateForm.phone} onChange={(e) => setDelegateForm({ ...delegateForm, phone: e.target.value })} />
                     </div>
                     <div>
-                      <label className={labelCls}>CNIC <span className="font-normal text-[#b89b84] normal-case tracking-normal">(optional)</span></label>
-                      <input className={inputCls} placeholder="XXXXX-XXXXXXX-X" value={delegateForm.cnic} onChange={(e) => setDelegateForm({ ...delegateForm, cnic: e.target.value })} />
+                      <label className={labelCls}>CNIC *</label>
+                      <input className={inputCls} placeholder="XXXXX-XXXXXXX-X" value={delegateForm.cnic || ''} onChange={(e) => {
+                        let val = e.target.value.replace(/\D/g, '');
+                        if (val.length > 13) val = val.slice(0, 13);
+                        let formatted = val;
+                        if (val.length > 5 && val.length <= 12) {
+                          formatted = val.slice(0, 5) + '-' + val.slice(5);
+                        } else if (val.length > 12) {
+                          formatted = val.slice(0, 5) + '-' + val.slice(5, 12) + '-' + val.slice(12);
+                        }
+                        setDelegateForm({ ...delegateForm, cnic: formatted });
+                      }} />
                     </div>
                     <div>
                       <label className={labelCls}>Committee *</label>
@@ -671,6 +770,66 @@ export default function EventRegistration() {
                           <p className="mt-2 text-[0.68rem] text-[#b89b84]">
                             All committees are open regardless of individual fill counts. Admin will manage allocations.
                           </p>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                ) : regType === 'pass' ? (
+                  <div className="space-y-4">
+                    <div>
+                      <label className={labelCls}>Full Name *</label>
+                      <input className={inputCls} placeholder="John Smith" value={passForm.fullName} onChange={(e) => setPassForm({ ...passForm, fullName: e.target.value })} />
+                    </div>
+                    <div>
+                      <label className={labelCls}>Email *</label>
+                      <input className={inputCls} type="email" placeholder="john@email.com" value={passForm.email} onChange={(e) => setPassForm({ ...passForm, email: e.target.value })} />
+                    </div>
+                    <div>
+                      <label className={labelCls}>Phone *</label>
+                      <input className={inputCls} placeholder="+92 300 0000000" value={passForm.phone} onChange={(e) => setPassForm({ ...passForm, phone: e.target.value })} />
+                    </div>
+                    <div>
+                      <label className={labelCls}>CNIC *</label>
+                      <input className={inputCls} placeholder="XXXXX-XXXXXXX-X" value={passForm.cnic || ''} onChange={(e) => {
+                        let val = e.target.value.replace(/\D/g, '');
+                        if (val.length > 13) val = val.slice(0, 13);
+                        let formatted = val;
+                        if (val.length > 5 && val.length <= 12) {
+                          formatted = val.slice(0, 5) + '-' + val.slice(5);
+                        } else if (val.length > 12) {
+                          formatted = val.slice(0, 5) + '-' + val.slice(5, 12) + '-' + val.slice(12);
+                        }
+                        setPassForm({ ...passForm, cnic: formatted });
+                      }} />
+                    </div>
+                    <div>
+                      <label className={labelCls}>Pass Type *</label>
+                      {passes.length === 0 ? (
+                        <div className={warningBoxCls}>No passes available for this event.</div>
+                      ) : (
+                        <>
+                          <select
+                            className={selectCls}
+                            value={passForm.passId}
+                            onChange={(e) => setPassForm({ ...passForm, passId: e.target.value })}
+                          >
+                            <option value="">— Select a pass —</option>
+                            {passes.map((p) => (
+                              <option key={p.id} value={p.id}>
+                                {p.name} — {selectedEvent.currency || 'PKR'} {Number(p.price).toLocaleString()}
+                              </option>
+                            ))}
+                          </select>
+                          {passForm.passId && passes.find(p => p.id === passForm.passId) && (() => {
+                            const p = passes.find(p => p.id === passForm.passId);
+                            return (
+                              <div className="mt-3 rounded-lg border border-[rgba(183,145,67,0.15)] bg-[rgba(68,7,19,0.3)] p-3 text-sm">
+                                {p.performers && <div className="mb-1 text-[#b89b84]"><strong className="text-[#B79143]">Performers:</strong> {p.performers}</div>}
+                                {p.timing && <div className="text-[#b89b84]"><strong className="text-[#B79143]">Timing:</strong> {p.timing}</div>}
+                                {!p.performers && !p.timing && <div className="text-[#b89b84] italic">No details available</div>}
+                              </div>
+                            );
+                          })()}
                         </>
                       )}
                     </div>
@@ -721,14 +880,16 @@ export default function EventRegistration() {
                 {(() => {
                   const fee = regType === 'sponsor'
                     ? selectedEvent?.sponsorPackages?.find((p) => p.name === sponsorForm.category)?.amount || 0
-                    : selectedEvent?.entryFees || 0;
+                    : regType === 'pass'
+                      ? passes.find((p) => p.id === passForm.passId)?.price || 0
+                      : selectedEvent?.entryFees || 0;
                   return fee > 0 ? (
                     <div className="mb-6 rounded-2xl border border-[#B79143]/30 bg-gradient-to-br from-[#B79143]/10 to-[#D7B46A]/5 p-5">
                       <div className="flex items-center gap-4">
                         <div className="text-3xl">🎟️</div>
                         <div>
                           <div className={labelCompactCls}>
-                            {regType === 'sponsor' ? `${sponsorForm.category || 'Sponsor'} Package Fee` : 'Registration Fee'}
+                            {regType === 'sponsor' ? `${sponsorForm.category || 'Sponsor'} Package Fee` : regType === 'pass' ? 'Pass Fee' : 'Registration Fee'}
                           </div>
                           <div className="text-3xl font-bold text-[#D7B46A]">
                             {selectedEvent?.currency || 'PKR'} {Number(fee).toLocaleString()}
@@ -752,11 +913,10 @@ export default function EventRegistration() {
                           key={m.key}
                           type="button"
                           onClick={() => setPaymentMethod(m)}
-                          className={`flex items-center gap-4 rounded-xl border p-4 text-left transition-all duration-300 ${
-                            paymentMethod?.key === m.key
+                          className={`flex items-center gap-4 rounded-xl border p-4 text-left transition-all duration-300 ${paymentMethod?.key === m.key
                               ? 'border-[#B79143] bg-gradient-to-r from-[#B79143]/10 to-[#D7B46A]/5 shadow-lg shadow-[#B79143]/10'
                               : 'border-[rgba(183,145,67,0.2)] bg-[rgba(68,7,19,0.4)] hover:border-[#B79143]/40'
-                          }`}
+                            }`}
                         >
                           <span className="text-3xl">{m.icon}</span>
                           <div className="flex-1 min-w-0">

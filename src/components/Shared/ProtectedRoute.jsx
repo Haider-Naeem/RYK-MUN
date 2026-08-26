@@ -4,13 +4,13 @@ import { useAuth } from '../../hooks/useAuth';
 
 export function ProtectedRoute({ children }) {
   const { currentUser } = useAuth();
-  if (!currentUser) return <Navigate to="/login" replace />;
+  if (!currentUser) return <Navigate to="/" replace />;
   return children;
 }
 
 export function AdminRoute({ children }) {
   const { currentUser, userProfile } = useAuth();
-  if (!currentUser) return <Navigate to="/login" replace />;
+  if (!currentUser) return <Navigate to="/" replace />;
   const role = userProfile?.role;
   if (role !== 'admin' && role !== 'superAdmin') return <Navigate to="/dashboard" replace />;
   return children;

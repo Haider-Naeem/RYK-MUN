@@ -19,6 +19,21 @@ export function keysToCamel(v) {
   return v;
 }
 
+/* ── camelCase → snake_case converter ─────────────────────────── */
+function toSnake(s) {
+  return s.replace(/[A-Z]/g, c => `_${c.toLowerCase()}`);
+}
+
+export function camelToSnake(v) {
+  if (Array.isArray(v)) return v.map(camelToSnake);
+  if (v !== null && typeof v === 'object' && !(v instanceof Date)) {
+    return Object.fromEntries(
+      Object.entries(v).map(([k, val]) => [toSnake(k), camelToSnake(val)])
+    );
+  }
+  return v;
+}
+
 /* ── Cache primitives ─────────────────────────────────────────── */
 export const cache = {
   get(key) {

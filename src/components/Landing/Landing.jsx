@@ -111,6 +111,8 @@ export default function Landing() {
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [pendingAction, setPendingAction] = useState(null);
 
+  const [committees, setCommittees] = useState([]);
+  const [passes, setPasses] = useState([]);
   const [wizardStep, setWizardStep] = useState(1);
   const [selectedRole, setSelectedRole] = useState(null);
   const [showWizard, setShowWizard] = useState(false);
@@ -131,7 +133,6 @@ export default function Landing() {
     method: null, receiptFile: null, receiptPreview: null,
   });
   const [selectedEvent, setSelectedEvent] = useState(null);
-  const [committees, setCommittees] = useState([]);
   const [news, setNews] = useState([]);
 
   const receiptInputRef = useRef();
@@ -155,8 +156,12 @@ export default function Landing() {
         if (events?.length > 0) {
           const ev = keysToCamel([events[0]])[0];
           setSelectedEvent(ev);
-          const { data: comms } = await supabase.from('committees').select('*').eq('event_id', ev.id);
+          const [{ data: comms }, { data: passesData }] = await Promise.all([
+            supabase.from('committees').select('*').eq('event_id', ev.id),
+            supabase.from('event_passes').select('*').eq('event_id', ev.id).eq('status', 'active')
+          ]);
           setCommittees(keysToCamel(comms || []));
+          setPasses(keysToCamel(passesData || []));
         }
       } catch (err) { console.error('Failed to load event data:', err); }
     };
@@ -208,9 +213,21 @@ export default function Landing() {
   }, [selectedEvent?.id]);
 
   useEffect(() => {
+    if (!selectedEvent?.id) return;
+    const channel = supabase
+      .channel('landing-passes-realtime')
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'event_passes' }, payload => {
+        const updated = keysToCamel(payload.new);
+        if (updated.eventId !== selectedEvent.id) return;
+        setPasses(prev => prev.map(p => (p.id === updated.id ? updated : p)));
+      })
+      .subscribe();
+    return () => supabase.removeChannel(channel);
+  }, [selectedEvent?.id]);
+
+  useEffect(() => {
     if (location.state?.scrollToRegister) {
       if (!selectedEvent) {
-        // No event, still show wizard for signup
         setShowWizard(true);
         setWizardStep(1);
         setTimeout(() => {
@@ -223,7 +240,6 @@ export default function Landing() {
       const hasDates = !!(selectedEvent?.startDate || selectedEvent?.date);
       const regStatus = getRegistrationStatus(selectedEvent);
       if (!hasDates || !regStatus.open) {
-        // Allow signup even if registration closed
         setShowWizard(true);
         setWizardStep(1);
       } else {
@@ -240,7 +256,6 @@ export default function Landing() {
   useEffect(() => {
     if (!currentUser || !pendingAction || showAuthModal) return;
     
-    // For wizard action, just open the wizard regardless of event
     if (pendingAction === 'wizard') {
       setShowWizard(true);
       setWizardStep(1);
@@ -250,9 +265,9 @@ export default function Landing() {
       }, 250);
       return;
     }
+
     
-    // For delegate action, check event status
-    if (pendingAction === 'delegate' || pendingAction === 'delegation') {
+    if (pendingAction === 'delegate' || pendingAction === 'delegation' || pendingAction === 'pass') {
       if (!selectedEvent) {
         toast.error('No active event found. You can still explore the website and create your profile.');
         setPendingAction(null);
@@ -387,8 +402,8 @@ export default function Landing() {
       return;
     }
     
-    if (currentSeatInfo.isFull && currentSeatInfo.totalSeats > 0) {
-      toast.error('All delegate seats are filled. Sponsorship is still available.');
+    if (role !== 'sponsor' && role !== 'pass' && currentSeatInfo.isFull && currentSeatInfo.totalSeats > 0) {
+      toast.error('All delegate seats are filled. Sponsorship and Passes are still available.');
       scrollTo('register');
       return;
     }
@@ -405,6 +420,7 @@ export default function Landing() {
 
   const handleApplyAsDelegate = () => handleApply('delegate');
   const handleApplyAsDelegation = () => handleApply('delegation');
+  const handleApplyAsPass = () => handleApply('pass');
 
   const handleRoleSelect = (role) => {
     if (role === 'wizard') {
@@ -521,7 +537,18 @@ export default function Landing() {
           }
           claimedCommittees.push(commId);
         }
-      }
+      } else if (selectedRole === 'pass') {
+          if (!formData.committee) { toast.error('Please select a pass'); setWizardLoading(false); return; }
+          const { data: granted, error: seatErr } = await supabase.rpc('increment_event_seats', { p_event_id: selectedEvent.id });
+          if (seatErr) throw seatErr;
+          if (!granted) {
+            await refreshSeatInfo();
+            toast.error('Sorry, all seats just filled up. Please try again or contact the organizer.');
+            setWizardLoading(false);
+            return;
+          }
+          seatClaimed = true;
+        }
 
       let receiptUrl = '';
       let profileUrl = '';
@@ -536,15 +563,22 @@ export default function Landing() {
           ]);
           receiptUrl = recUrl;
           delegateProfileUrls = profUrls;
+        } else if (selectedRole === 'pass') {
+          [receiptUrl, profileUrl] = await Promise.all([
+            uploadToR2(paymentData.receiptFile, `receipts/${currentUser?.id || 'guest'}/${Date.now()}_receipt`),
+            uploadToR2(formData.profileImage,   `profiles/${currentUser?.id || 'guest'}/${Date.now()}_profile`),
+          ]);
         } else {
           [receiptUrl, profileUrl] = await Promise.all([
-            uploadToR2(paymentData.receiptFile, `receipts/${currentUser.id}/${Date.now()}_receipt`),
-            uploadToR2(formData.profileImage,   `profiles/${currentUser.id}/${Date.now()}_profile`),
+            uploadToR2(paymentData.receiptFile, `receipts/${currentUser?.id || 'guest'}/${Date.now()}_receipt`),
+            uploadToR2(formData.profileImage,   `profiles/${currentUser?.id || 'guest'}/${Date.now()}_profile`),
           ]);
         }
       } catch (uploadErr) {
-        if (seatClaimed) {
+        if (seatClaimed && selectedRole === 'delegate') {
           await supabase.rpc('release_filled_seat', { committee_id: formData.committee });
+        } else if (seatClaimed && selectedRole === 'pass') {
+          await supabase.rpc('release_event_seats', { p_event_id: selectedEvent.id });
         }
         for (const claimedId of claimedCommittees) {
           await supabase.rpc('release_filled_seat', { committee_id: claimedId });
@@ -558,6 +592,8 @@ export default function Landing() {
         entryFeeAmount = selectedEvent?.sponsorPackages?.find?.(p => p.name === formData.committee)?.amount || 0;
       } else if (selectedRole === 'delegation') {
         entryFeeAmount = (selectedEvent?.entryFees || 5000) * formData.delegateCount;
+      } else if (selectedRole === 'pass') {
+        entryFeeAmount = passes.find(p => p.id === formData.committee)?.price || 0;
       } else {
         entryFeeAmount = selectedEvent?.entryFees || 5000;
       }
@@ -589,12 +625,42 @@ export default function Landing() {
         const { error: membersErr } = await supabase.from('registrations').insert(membersToInsert);
         if (membersErr) throw membersErr;
 
+      } else if (selectedRole === 'pass') {
+        const { data: regData, error: regErr } = await supabase
+          .from('pass_registrations')
+          .insert({
+            user_id:        currentUser?.id || null,
+            event_id:       selectedEvent?.id,
+            pass_id:        formData.committee,
+            full_name:      formData.fullName,
+            email:          formData.email,
+            phone:          formData.phone,
+            cnic:           formData.cnic,
+            image_url:      profileUrl,
+            payment_status: 'pending',
+            status:         'pending'
+          })
+          .select()
+          .single();
+
+        if (regErr) {
+          if (seatClaimed && selectedRole === 'delegate') {
+            await supabase.rpc('release_filled_seat', { committee_id: formData.committee });
+            await refreshSeatInfo();
+          } else if (seatClaimed && selectedRole === 'pass') {
+            await supabase.rpc('release_event_seats', { p_event_id: selectedEvent.id });
+            await refreshSeatInfo();
+          }
+          throw regErr;
+        }
+        regDataId = regData.id;
       } else {
         const committee = committees.find(c => c.id === formData.committee);
+        
         const { data: regData, error: regErr } = await supabase
           .from('registrations')
           .insert({
-            user_id:            currentUser.id,
+            user_id:            currentUser?.id || null,
             event_id:           selectedEvent?.id,
             event_name:         selectedEvent?.name || '',
             type:               selectedRole,
@@ -615,7 +681,7 @@ export default function Landing() {
           .single();
 
         if (regErr) {
-          if (seatClaimed) {
+          if (seatClaimed && selectedRole === 'delegate') {
             await supabase.rpc('release_filled_seat', { committee_id: formData.committee });
             await refreshSeatInfo();
           }
@@ -624,19 +690,27 @@ export default function Landing() {
         regDataId = regData.id;
       }
 
+
+      const paymentPayload = {
+        user_id:           currentUser?.id || null,
+        event_id:          selectedEvent?.id,
+        event_name:        selectedEvent?.name || '',
+        registration_type: selectedRole,
+        amount:            entryFeeAmount,
+        payment_method:    paymentData.method?.label,
+        receipt_url:       receiptUrl,
+        status:            'pending',
+      };
+
+      if (selectedRole === 'pass') {
+        paymentPayload.pass_registration_id = regDataId;
+      } else {
+        paymentPayload.registration_id = regDataId;
+      }
+
       const { error: payErr } = await supabase
         .from('payments')
-        .insert({
-          user_id:           currentUser.id,
-          registration_id:   regDataId,
-          event_id:          selectedEvent?.id,
-          event_name:        selectedEvent?.name || '',
-          registration_type: selectedRole,
-          amount:            entryFeeAmount,
-          payment_method:    paymentData.method?.label,
-          receipt_url:       receiptUrl,
-          status:            'pending',
-        });
+        .insert(paymentPayload);
 
       if (payErr) throw payErr;
 
@@ -691,6 +765,8 @@ export default function Landing() {
     entryFee = selectedEvent?.sponsorPackages?.find?.(p => p.name === formData.committee)?.amount || 0;
   } else if (selectedRole === 'delegation') {
     entryFee = (selectedEvent?.entryFees || 5000) * (formData.delegateCount || 6);
+  } else if (selectedRole === 'pass') {
+    entryFee = passes.find(p => p.id === formData.committee)?.price || 0;
   } else {
     entryFee = selectedEvent?.entryFees || 5000;
   }
@@ -725,6 +801,7 @@ export default function Landing() {
           displayCommittees={displayCommittees}
           onApplyDelegate={handleApplyAsDelegate}
           onApplyDelegation={handleApplyAsDelegation}
+          onApplyPass={handleApplyAsPass}
           onExploreCommittees={() => scrollTo('committees')}
           onScrollTo={() => scrollTo('about')}
           isRegistrationOpen={isRegistrationOpen}
@@ -774,6 +851,7 @@ export default function Landing() {
           paymentData={paymentData}
           setPaymentData={setPaymentData}
           committees={committees}
+          passes={passes}
           selectedEvent={selectedEvent}
           onRoleSelect={handleRoleSelect}
           onValidateStep={handleValidateStep}

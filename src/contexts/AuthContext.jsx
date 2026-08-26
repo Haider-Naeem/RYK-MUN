@@ -105,7 +105,7 @@ export function AuthProvider({ children }) {
         const user = session?.user ?? null;
         setCurrentUser(normalizeUser(user));
         if (!user) setUserProfile(null);
-        if (user) fetchUserProfile(user.id).catch(console.error);
+        if (user) await fetchUserProfile(user.id);
       } catch (err) {
         console.error('initializeAuth:', err?.message || err);
         if (!mounted) return;

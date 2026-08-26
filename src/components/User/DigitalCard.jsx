@@ -95,7 +95,8 @@ export default function DigitalCard() {
 
   // Convert profile image URL to base64
   useEffect(() => {
-    if (!selectedCard?.imageUrl) {
+    const imageToUse = selectedCard?.imageUrl || userProfile?.profileImage;
+    if (!imageToUse) {
       setB64Image(null);
       return;
     }
@@ -110,8 +111,8 @@ export default function DigitalCard() {
       setB64Image(canvas.toDataURL('image/png'));
     };
     img.onerror = () => setB64Image(null);
-    img.src = selectedCard.imageUrl;
-  }, [selectedCard?.imageUrl]);
+    img.src = imageToUse;
+  }, [selectedCard?.imageUrl, userProfile?.profileImage]);
 
   // Convert background image to base64 for card
   useEffect(() => {
@@ -135,7 +136,7 @@ export default function DigitalCard() {
     async function load() {
       try {
         // Step 1: Fetch approved registrations
-        const { data: regs, error: rErr } = await supabase
+        const { data: regsData, error: rErr } = await supabase
           .from('registrations')
           .select('*')
           .eq('user_id', currentUser.id)
@@ -143,6 +144,23 @@ export default function DigitalCard() {
           .neq('type', 'delegation');
 
         if (rErr) throw rErr;
+
+        const { data: passRegsData, error: prErr } = await supabase
+          .from('pass_registrations')
+          .select('*')
+          .eq('user_id', currentUser.id)
+          .eq('payment_status', 'approved');
+
+        if (prErr) throw prErr;
+
+        // Map pass registrations to have matching fields
+        const formattedPassRegs = (passRegsData || []).map(pr => ({
+          ...pr,
+          type: 'pass',
+          isPass: true
+        }));
+
+        const regs = [...(regsData || []), ...formattedPassRegs];
 
         // Step 2: Get unique event IDs from registrations
         const eventIds = [...new Set(regs.map(r => r.event_id).filter(Boolean))];
@@ -181,6 +199,24 @@ export default function DigitalCard() {
           };
         });
 
+        // Step 4.5: Fetch event passes for pass names
+        const passIds = [...new Set(formattedPassRegs.map(pr => pr.pass_id).filter(Boolean))];
+        let passMap = {};
+        if (passIds.length > 0) {
+          const { data: passes, error: pErr } = await supabase
+            .from('event_passes')
+            .select('id, name')
+            .in('id', passIds);
+          if (!pErr && passes) {
+            passes.forEach(p => passMap[p.id] = p.name);
+          }
+        }
+        normalized.forEach(reg => {
+          if (reg.isPass && reg.passId) {
+            reg.passName = passMap[reg.passId] || 'Event Pass';
+          }
+        });
+
         // Step 5: Fetch committees
         const comms = await cachedCollection('committees');
         
@@ -188,7 +224,7 @@ export default function DigitalCard() {
         setCommittees(comms);
 
         // Auto-select card
-        const passedId = location.state?.regId;
+        const passedId = location.state?.regId || location.state?.passRegId;
         const auto = passedId 
           ? normalized.find(r => r.id === passedId) 
           : normalized.length === 1 
@@ -204,13 +240,19 @@ export default function DigitalCard() {
       }
     }
     load();
-  }, [currentUser]);
+  }, [currentUser, location.state]);
 
   async function doSelectCard(reg, comms = committees) {
     setSelectedCard(reg);
     setQrData(undefined);
     try {
-      const { data, error } = await supabase.from('qr_codes').select('*').eq('registration_id', reg.id);
+      let query = supabase.from('qr_codes').select('*');
+      if (reg.isPass) {
+        query = query.eq('pass_registration_id', reg.id);
+      } else {
+        query = query.eq('registration_id', reg.id);
+      }
+      const { data, error } = await query;
       if (error) throw error;
       setQrData(data?.length > 0 ? keysToCamel(data[0]) : null);
     } catch (e) {
@@ -536,11 +578,41 @@ export default function DigitalCard() {
               fontWeight: 500,
               color: valid ? '#F8F3EA' : '#737373',
             }}>
-              {displayName} ({selectedCard?.type === 'delegate' ? 'Delegate' : selectedCard?.type === 'sponsor' ? 'Sponsor' : 'Member'})
+              {displayName} ({selectedCard?.type === 'delegate' ? 'Delegate' : selectedCard?.type === 'sponsor' ? 'Sponsor' : selectedCard?.type === 'pass' ? 'Pass' : 'Member'})
             </span>
           </div>
 
-          {committeeName && (
+          {selectedCard?.type === 'pass' ? (
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                gap: '8px',
+                padding: '4px 0',
+              }}
+            >
+              <span style={{
+                fontFamily: 'Montserrat, sans-serif',
+                fontSize: '9px',
+                fontWeight: 'bold',
+                textTransform: 'uppercase',
+                letterSpacing: '0.05em',
+                color: valid ? '#B79143' : '#525252',
+              }}>
+                PASS NAME
+              </span>
+              <span style={{
+                maxWidth: '165px',
+                textAlign: 'right',
+                fontFamily: 'Montserrat, sans-serif',
+                fontSize: '11px',
+                fontWeight: 500,
+                color: valid ? '#F8F3EA' : '#737373',
+              }}>
+                {selectedCard?.passName || 'Event Pass'}
+              </span>
+            </div>
+          ) : committeeName && (
             <div
               style={{
                 display: 'flex',
@@ -568,6 +640,39 @@ export default function DigitalCard() {
                 color: valid ? '#F8F3EA' : '#737373',
               }}>
                 {committeeName}
+              </span>
+            </div>
+          )}
+          {selectedCard?.cnic && (
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                gap: '8px',
+                padding: selectedCard?.type === 'pass' || committeeName ? '4px 0 0 0' : '4px 0',
+                borderTop: '1px solid rgba(183,145,67,0.1)',
+                marginTop: '4px'
+              }}
+            >
+              <span style={{
+                fontFamily: 'Montserrat, sans-serif',
+                fontSize: '9px',
+                fontWeight: 'bold',
+                textTransform: 'uppercase',
+                letterSpacing: '0.05em',
+                color: valid ? '#B79143' : '#525252',
+              }}>
+                CNIC
+              </span>
+              <span style={{
+                maxWidth: '165px',
+                textAlign: 'right',
+                fontFamily: 'Montserrat, sans-serif',
+                fontSize: '11px',
+                fontWeight: 500,
+                color: valid ? '#F8F3EA' : '#737373',
+              }}>
+                {selectedCard?.cnic}
               </span>
             </div>
           )}

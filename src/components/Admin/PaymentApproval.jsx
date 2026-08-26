@@ -75,31 +75,44 @@ export default function PaymentApproval() {
   const [refundAction,   setRefundAction]   = useState(null);
   const [refundNote,     setRefundNote]     = useState('');
 
+  const [passRegistrations, setPassRegistrations] = useState([]);
+
   async function fetchAll() {
     try {
-      const [{ data: pays }, { data: regs }, { data: evs }, { data: rfs }] = await Promise.all([
+      const [{ data: pays }, { data: regs }, { data: evs }, { data: rfs }, { data: passRegs }] = await Promise.all([
         supabase.from('payments').select('*').order('created_at', { ascending: false }),
         supabase.from('registrations').select('*'),
         supabase.from('events').select('id, name'),
         supabase.from('refund_requests').select('*').order('created_at', { ascending: false }),
+        supabase.from('pass_registrations').select('*')
       ]);
       setPayments(keysToCamel(pays || []));
       setRegistrations(keysToCamel(regs || []));
       setEvents(evs || []);
       setRefundRequests(keysToCamel(rfs || []));
+      setPassRegistrations(keysToCamel(passRegs || []));
     } catch (e) { console.error(e); }
     finally { setLoading(false); }
   }
   useEffect(() => { fetchAll(); }, []);
 
   const regMap = Object.fromEntries(registrations.map(r => [r.id, r]));
+  const passRegMap = Object.fromEntries(passRegistrations.map(r => [r.id, r]));
 
   function getParticipantName(payment) {
+    if (payment.registrationType === 'pass' && payment.passRegistrationId) {
+      const pReg = passRegMap[payment.passRegistrationId];
+      if (pReg) return pReg.fullName;
+    }
     const reg = regMap[payment.registrationId];
     if (!reg) return (payment.userId || '').slice(0, 12) + '…';
     return reg.fullName || reg.companyName || reg.email || '—';
   }
   function getParticipantSub(payment) {
+    if (payment.registrationType === 'pass' && payment.passRegistrationId) {
+      const pReg = passRegMap[payment.passRegistrationId];
+      if (pReg) return pReg.phone || pReg.email || '';
+    }
     const reg = regMap[payment.registrationId];
     if (!reg) return '';
     return reg.type === 'sponsor'
@@ -130,7 +143,9 @@ export default function PaymentApproval() {
     setActionLoading(true);
     try {
       const { error } = await supabase.rpc('approve_payment', {
-        payment_id: payment.id, registration_id: payment.registrationId || null,
+        payment_id: payment.id,
+        registration_id: payment.registrationId || null,
+        pass_registration_id: payment.passRegistrationId || null,
       });
       if (error) throw error;
 
@@ -154,7 +169,9 @@ export default function PaymentApproval() {
     setActionLoading(true);
     try {
       const { error } = await supabase.rpc('reject_payment', {
-        payment_id: payment.id, registration_id: payment.registrationId || null,
+        payment_id: payment.id,
+        registration_id: payment.registrationId || null,
+        pass_registration_id: payment.passRegistrationId || null,
       });
       if (error) throw error;
       toast.success('❌ Payment rejected');
@@ -408,6 +425,7 @@ export default function PaymentApproval() {
                 <option value="all">All Types</option>
                 <option value="delegate">Delegates</option>
                 <option value="sponsor">Sponsors</option>
+                <option value="pass">Passes</option>
               </select>
             </div>
 

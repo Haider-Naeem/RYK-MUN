@@ -30,7 +30,7 @@ function canRequestRefund(payment, registrations, refundRequests, events) {
   if (existing) return { allowed: false, reason: null };
 
   // 3. Get registration and event details
-  const reg = registrations.find(r => r.id === payment.registrationId);
+  const reg = registrations.find(r => r.id === (payment.registrationId || payment.passRegistrationId));
   if (!reg) return { allowed: false, reason: null };
 
   // 4. Get event to check registration dates
@@ -143,6 +143,18 @@ export default function MyPayments() {
           .eq('user_id', currentUser.id)
           .order('created_at', { ascending: false });
         setRefundRequests(keysToCamel(rf || []));
+
+        const { data: passRegs } = await supabase
+          .from('pass_registrations')
+          .select('*')
+          .eq('user_id', currentUser.id);
+        
+        // We can append pass registrations to normal registrations for display purposes in MyPayments
+        // But since registrations are mapped via registrationId, we should ensure pass_registrations don't conflict
+        // Wait, MyPayments expects 'registrations' to be the standard registrations.
+        // Actually, we can just inject pass_registrations into `registrations` with a flag `isPass: true`.
+        const formattedPassRegs = keysToCamel(passRegs || []).map(pr => ({ ...pr, isPass: true, type: 'pass' }));
+        setRegistrations([...keysToCamel(regs), ...formattedPassRegs]);
       } catch (e) {
         console.error(e);
         toast.error('Failed to load payments.');
@@ -475,7 +487,7 @@ export default function MyPayments() {
                                     <button
                                       type="button"
                                       className="w-fit rounded-lg border border-emerald-400/40 bg-emerald-500/15 px-3 py-1.5 text-[11px] font-semibold text-emerald-300 transition hover:bg-emerald-500/25"
-                                      onClick={() => navigate('/my-card', { state: { regId: p.registrationId } })}
+                                      onClick={() => navigate('/my-card', { state: p.registrationType === 'pass' ? { passRegId: p.passRegistrationId } : { regId: p.registrationId } })}
                                     >
                                       🎫 View Card
                                     </button>
@@ -567,13 +579,13 @@ export default function MyPayments() {
 
                           <div className="flex flex-wrap gap-2 pt-2 border-t" style={{ borderColor: 'rgba(183,145,67,0.1)' }}>
                             {p.status === 'approved' && p.registrationType !== 'delegation' && (
-                              <button
-                                type="button"
-                                className="rounded-lg border border-emerald-400/40 bg-emerald-500/15 px-3 py-2 text-xs font-semibold text-emerald-300 transition hover:bg-emerald-500/25"
-                                onClick={() => navigate('/my-card', { state: { regId: p.registrationId } })}
-                              >
-                                🎫 View Card
-                              </button>
+                                <button
+                                  type="button"
+                                  className="rounded-lg border border-emerald-400/40 bg-emerald-500/15 px-3 py-2 text-xs font-semibold text-emerald-300 transition hover:bg-emerald-500/25"
+                                  onClick={() => navigate('/my-card', { state: p.registrationType === 'pass' ? { passRegId: p.passRegistrationId } : { regId: p.registrationId } })}
+                                >
+                                  🎫 View Card
+                                </button>
                             )}
                             {refundCheck.allowed && !existingRefund && (
                               <button
