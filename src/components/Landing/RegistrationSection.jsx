@@ -18,7 +18,7 @@ const RegistrationSection = forwardRef(({
   currentUser, showWizard, wizardSubmitted, wizardStep, selectedRole,
   regStatus, seatInfo, entryFee, wizardLoading,
   formData, setFormData, paymentData, setPaymentData,
-  committees, passes, selectedEvent,
+  committees, passes, getPassRegistrationStatus, selectedEvent,
   onRoleSelect, onValidateStep, onContinue, onSubmit, onReset,
   profileInputRef, receiptInputRef,
   onProfileImage, onReceiptFile,
@@ -199,11 +199,11 @@ const RegistrationSection = forwardRef(({
                 </h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-xl mx-auto">
                   {[
-                    { role: 'delegate', icon: '🧑‍💼', title: 'Delegate', desc: 'Join a committee, represent a nation, and engage in diplomatic debate.', disabled: seatInfo.isFull && seatInfo.totalSeats > 0 },
-                    { role: 'sponsor', icon: '🏢', title: 'Sponsor', desc: 'Support the conference as an organizational partner and gain visibility.', disabled: false },
-                    { role: 'delegation', icon: '👥', title: 'Delegation', desc: 'Register a group of 6-8 delegates for the conference.', disabled: false },
-                    { role: 'pass', icon: '🎟️', title: 'Event Pass', desc: 'Purchase a pass to attend socials and specific events.', disabled: false },
-                  ].map(({ role, icon, title, desc, disabled }) => (
+                    { role: 'delegate', icon: '🧑‍💼', title: 'Delegate', desc: 'Join a committee, represent a nation, and engage in diplomatic debate.', disabled: (seatInfo.isFull && seatInfo.totalSeats > 0) || !regStatus.open, label: (!regStatus.open ? '🚫 Closed' : '🚫 Seats Full') },
+                    { role: 'sponsor', icon: '🏢', title: 'Sponsor', desc: 'Support the conference as an organizational partner and gain visibility.', disabled: !regStatus.open, label: '🚫 Closed' },
+                    { role: 'delegation', icon: '👥', title: 'Delegation', desc: 'Register a group of 6-8 delegates for the conference.', disabled: !regStatus.open, label: '🚫 Closed' },
+                    { role: 'pass', icon: '🎟️', title: 'Event Pass', desc: 'Purchase a pass to attend socials and specific events.', disabled: passes?.length === 0 || !(passes?.some(p => getPassRegistrationStatus(p).open)), label: '🚫 Closed' },
+                  ].map(({ role, icon, title, desc, disabled, label }) => (
                     <button key={role}
                       onClick={() => onRoleSelect(role)}
                       className={`group rounded-xl border p-4 text-center transition-all duration-500 ${disabled ? 'opacity-50 cursor-not-allowed' : 'hover:scale-[1.01]'}`}
@@ -212,7 +212,7 @@ const RegistrationSection = forwardRef(({
                       <div className="text-base font-bold mb-1" style={{ color: C.textPrimary }}>{title}</div>
                       <p className="text-xs leading-relaxed" style={{ color: C.textSecondary }}>{desc}</p>
                       {disabled ? (
-                        <div className="mt-2 inline-block px-3 py-1 rounded-full border text-xs font-semibold text-red-300 border-red-400/40 bg-red-500/10">🚫 Seats Full</div>
+                        <div className="mt-2 inline-block px-3 py-1 rounded-full border text-xs font-semibold text-red-300 border-red-400/40 bg-red-500/10">{label}</div>
                       ) : (
                         <div className="mt-2 inline-block px-3 py-1 rounded-full border text-xs font-semibold" style={{ borderColor: C.borderStrong, color: C.gold }}>Select Role →</div>
                       )}
@@ -418,10 +418,12 @@ const RegistrationSection = forwardRef(({
                     ) : (
                       passes?.map?.((pass, i) => {
                         const isFull = pass.soldSeats >= pass.totalSeats && pass.totalSeats > 0;
+                        const isClosed = !getPassRegistrationStatus(pass).open;
+                        const isDisabled = isFull || isClosed;
                         return (
-                          <button key={i} onClick={() => !isFull && setFormData({ ...formData, committee: pass.id })}
-                            disabled={isFull}
-                            className={`w-full rounded-lg border p-4 flex flex-col transition-all duration-300 text-left ${isFull ? 'opacity-50 cursor-not-allowed grayscale' : ''}`}
+                          <button key={i} onClick={() => !isDisabled && setFormData({ ...formData, committee: pass.id })}
+                            disabled={isDisabled}
+                            className={`w-full rounded-lg border p-4 flex flex-col transition-all duration-300 text-left ${isDisabled ? 'opacity-50 cursor-not-allowed grayscale' : ''}`}
                             style={{
                               borderColor: formData.committee === pass.id ? C.gold : C.borderGold,
                               background: formData.committee === pass.id
@@ -431,6 +433,7 @@ const RegistrationSection = forwardRef(({
                               <div className="text-base font-bold" style={{ color: C.textPrimary }}>
                                 {pass.name}
                                 {isFull && <span className="ml-2 text-xs text-red-400 font-bold tracking-widest">(SOLD OUT)</span>}
+                                {!isFull && isClosed && <span className="ml-2 text-xs text-red-400 font-bold tracking-widest">(CLOSED)</span>}
                               </div>
                               <div className="text-lg font-bold" style={{ color: C.gold }}>{pass.currency || 'PKR'} {Number(pass.price).toLocaleString()}</div>
                             </div>

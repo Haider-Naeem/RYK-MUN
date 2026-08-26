@@ -49,6 +49,21 @@ function getRegistrationStatus(ev) {
   return { open: true };
 }
 
+function getPassRegistrationStatus(pass) {
+  if (!pass) return { open: true };
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  if (pass.registrationStartDate) {
+    const start = new Date(pass.registrationStartDate + 'T00:00:00');
+    if (today < start) return { open: false, message: 'Pass registration has not opened yet.' };
+  }
+  if (pass.registrationEndDate) {
+    const end = new Date(pass.registrationEndDate + 'T23:59:59');
+    if (today > end) return { open: false, message: 'Pass registration is closed.' };
+  }
+  return { open: true };
+}
+
 function formatDateRange(startDate, endDate) {
   if (!startDate) return 'TBD';
   const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -228,8 +243,15 @@ export default function EventRegistration() {
 
   // ── Submit registration ──
   async function handleSubmit() {
-    const regStatus = getRegistrationStatus(selectedEvent);
-    if (!regStatus.open) { toast.error(regStatus.message || 'Registration is not available'); return; }
+    if (regType !== 'pass') {
+      const regStatus = getRegistrationStatus(selectedEvent);
+      if (!regStatus.open) { toast.error(regStatus.message || 'Registration is not available'); return; }
+    } else {
+      const pass = passes.find(p => p.id === passForm.passId);
+      if (!pass) { toast.error('Please select a pass'); return; }
+      const passStatus = getPassRegistrationStatus(pass);
+      if (!passStatus.open) { toast.error(passStatus.message || 'Pass registration is not available'); return; }
+    }
     if (!paymentMethod) { toast.error('Please select a payment method'); return; }
     if (!receiptFile) { toast.error('Payment screenshot is required'); return; }
     setLoading(true);
@@ -240,10 +262,17 @@ export default function EventRegistration() {
         .eq('event_id', selectedEvent.id);
       const freshComms = keysToCamel(freshCommsRaw || []);
 
-      if (regType === 'delegate' || regType === 'pass') {
+      if (regType === 'delegate') {
         const { totalSeats, totalFilled } = eventSeatInfo(freshComms);
         if (totalSeats > 0 && totalFilled >= totalSeats) {
           toast.error('Sorry, this event is fully booked! No seats remaining.');
+          setLoading(false);
+          return;
+        }
+      } else if (regType === 'pass') {
+        const pass = passes.find(p => p.id === passForm.passId);
+        if (pass && pass.totalSeats > 0 && (pass.soldSeats || 0) >= pass.totalSeats) {
+          toast.error('Sorry, this pass is completely sold out!');
           setLoading(false);
           return;
         }
@@ -389,11 +418,6 @@ export default function EventRegistration() {
   }
 
   function handleEventSelect(ev) {
-    const regStatus = getRegistrationStatus(ev);
-    if (!regStatus.open) {
-      toast.error(regStatus.message || 'Registration is not available');
-      return;
-    }
     supabase
       .from('committees')
       .select('*')
@@ -657,9 +681,16 @@ export default function EventRegistration() {
                 <div className="grid grid-cols-1 gap-4">
                   <button
                     type="button"
-                    onClick={() => setRegType('delegate')}
-                    disabled={eventFull}
-                    className={`rounded-2xl border p-6 sm:p-8 text-center transition-all duration-300 relative ${eventFull
+                    onClick={() => {
+                      const status = getRegistrationStatus(selectedEvent);
+                      if (!status.open) {
+                        toast.error(status.message || 'Delegate registration is closed.');
+                        return;
+                      }
+                      setRegType('delegate');
+                    }}
+                    disabled={eventFull || !getRegistrationStatus(selectedEvent).open}
+                    className={`rounded-2xl border p-6 sm:p-8 text-center transition-all duration-300 relative ${(eventFull || !getRegistrationStatus(selectedEvent).open)
                         ? 'border-red-500/20 bg-red-950/10 opacity-60 cursor-not-allowed'
                         : regType === 'delegate'
                           ? 'border-[#B79143] bg-gradient-to-br from-[#B79143]/10 to-[#D7B46A]/5 shadow-lg shadow-[#B79143]/10 scale-[1.02]'
@@ -679,8 +710,18 @@ export default function EventRegistration() {
 
                   <button
                     type="button"
-                    onClick={() => setRegType('sponsor')}
-                    className={`rounded-2xl border p-6 sm:p-8 text-center transition-all duration-300 ${regType === 'sponsor'
+                    onClick={() => {
+                      const status = getRegistrationStatus(selectedEvent);
+                      if (!status.open) {
+                        toast.error(status.message || 'Sponsor registration is closed.');
+                        return;
+                      }
+                      setRegType('sponsor');
+                    }}
+                    disabled={!getRegistrationStatus(selectedEvent).open}
+                    className={`rounded-2xl border p-6 sm:p-8 text-center transition-all duration-300 ${!getRegistrationStatus(selectedEvent).open
+                        ? 'border-red-500/20 bg-red-950/10 opacity-60 cursor-not-allowed'
+                        : regType === 'sponsor'
                         ? 'border-[#B79143] bg-gradient-to-br from-[#B79143]/10 to-[#D7B46A]/5 shadow-lg shadow-[#B79143]/10 scale-[1.02]'
                         : 'border-[rgba(183,145,67,0.2)] bg-[rgba(68,7,19,0.4)] hover:border-[#B79143]/40 hover:bg-[rgba(68,7,19,0.6)]'
                       }`}
@@ -692,8 +733,22 @@ export default function EventRegistration() {
 
                   <button
                     type="button"
-                    onClick={() => setRegType('pass')}
-                    className={`rounded-2xl border p-6 sm:p-8 text-center transition-all duration-300 ${regType === 'pass'
+                    onClick={() => {
+                      if (passes.length === 0) {
+                        toast.error('No passes available for this event.');
+                        return;
+                      }
+                      const hasOpenPass = passes.some(p => getPassRegistrationStatus(p).open);
+                      if (!hasOpenPass) {
+                        toast.error('All passes are currently closed for registration.');
+                        return;
+                      }
+                      setRegType('pass');
+                    }}
+                    disabled={passes.length === 0 || !passes.some(p => getPassRegistrationStatus(p).open)}
+                    className={`rounded-2xl border p-6 sm:p-8 text-center transition-all duration-300 ${(passes.length === 0 || !passes.some(p => getPassRegistrationStatus(p).open))
+                        ? 'border-red-500/20 bg-red-950/10 opacity-60 cursor-not-allowed'
+                        : regType === 'pass'
                         ? 'border-[#B79143] bg-gradient-to-br from-[#B79143]/10 to-[#D7B46A]/5 shadow-lg shadow-[#B79143]/10 scale-[1.02]'
                         : 'border-[rgba(183,145,67,0.2)] bg-[rgba(68,7,19,0.4)] hover:border-[#B79143]/40 hover:bg-[rgba(68,7,19,0.6)]'
                       }`}

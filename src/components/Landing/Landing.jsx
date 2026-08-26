@@ -85,6 +85,21 @@ function getRegistrationStatus(ev) {
   return { open: true };
 }
 
+function getPassRegistrationStatus(pass) {
+  if (!pass) return { open: true };
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  if (pass.registrationStartDate) {
+    const start = new Date(pass.registrationStartDate + 'T00:00:00');
+    if (today < start) return { open: false, message: 'Pass registration has not opened yet.' };
+  }
+  if (pass.registrationEndDate) {
+    const end = new Date(pass.registrationEndDate + 'T23:59:59');
+    if (today > end) return { open: false, message: 'Pass registration is closed.' };
+  }
+  return { open: true };
+}
+
 function getSeatInfo(ev, comms) {
   if (ev?.totalSeats > 0) {
     const totalSeats  = ev.totalSeats;
@@ -275,11 +290,19 @@ export default function Landing() {
       }
       const hasDates = !!(selectedEvent?.startDate || selectedEvent?.date);
       const regStatus = getRegistrationStatus(selectedEvent);
-      if (!hasDates || !regStatus.open) {
+      if (!hasDates || (!regStatus.open && pendingAction !== 'pass')) {
         toast.error('Registration is not open yet. Event dates or registration dates may not be announced.');
         setPendingAction(null);
-        scrollTo('register');
         return;
+      }
+      
+      if (pendingAction === 'pass') {
+        const hasOpenPass = passes.some(p => getPassRegistrationStatus(p).open);
+        if (passes.length === 0 || !hasOpenPass) {
+          toast.error('Pass registration is currently closed or no passes are available.');
+          setPendingAction(null);
+          return;
+        }
       }
       setSelectedRole(pendingAction);
       setShowWizard(true);
@@ -396,10 +419,19 @@ export default function Landing() {
       return;
     }
     
-    if (!regStatus.open) {
+    if (!regStatus.open && role !== 'pass') {
       toast.error(regStatus.message || 'Registration is not open yet.');
       scrollTo('register');
       return;
+    }
+    
+    if (role === 'pass') {
+      const hasOpenPass = passes.some(p => getPassRegistrationStatus(p).open);
+      if (passes.length === 0 || !hasOpenPass) {
+        toast.error('Pass registration is currently closed or no passes are available.');
+        scrollTo('register');
+        return;
+      }
     }
     
     if (role !== 'sponsor' && role !== 'pass' && currentSeatInfo.isFull && currentSeatInfo.totalSeats > 0) {
@@ -476,9 +508,27 @@ export default function Landing() {
     const hasDates = !!(selectedEvent?.startDate || selectedEvent?.date);
     const regStatus = getRegistrationStatus(selectedEvent);
     
-    if (!hasDates || !regStatus.open) {
+    if (!hasDates) {
+      toast.error('Registration is not open. Event dates are yet to be announced.');
+      return;
+    }
+    
+    if (selectedRole !== 'pass' && !regStatus.open) {
       toast.error(regStatus.message || 'Registration is not open.');
       return;
+    }
+
+    if (selectedRole === 'pass') {
+      const pass = passes.find(p => p.id === formData.committee); // Assuming committee holds pass ID for passes
+      if (!pass) {
+        toast.error('Selected pass is invalid.');
+        return;
+      }
+      const passStatus = getPassRegistrationStatus(pass);
+      if (!passStatus.open) {
+        toast.error(passStatus.message || 'Pass registration is closed.');
+        return;
+      }
     }
     
     if (!paymentData.method)      { toast.error('Select a payment method'); return; }
@@ -758,7 +808,7 @@ export default function Landing() {
   const showSidebar = isAdmin;
 
   const hasDates = !!(selectedEvent?.startDate || selectedEvent?.date);
-  const isRegistrationOpen = !!(regStatus.open && hasDates && selectedEvent);
+  const isRegistrationOpen = !!(hasDates && selectedEvent && (regStatus.open || passes.some(p => getPassRegistrationStatus(p).open)));
 
   let entryFee = 0;
   if (selectedRole === 'sponsor') {
@@ -852,6 +902,7 @@ export default function Landing() {
           setPaymentData={setPaymentData}
           committees={committees}
           passes={passes}
+          getPassRegistrationStatus={getPassRegistrationStatus}
           selectedEvent={selectedEvent}
           onRoleSelect={handleRoleSelect}
           onValidateStep={handleValidateStep}
