@@ -7,6 +7,7 @@ import { QRCodeCanvas } from 'qrcode.react';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
 import { cachedCollection, keysToCamel } from '../../utils/cache';
+import { imageUrlToBase64 } from '../../utils/helpers';
 import toast from 'react-hot-toast';
 import bk from "../../Assets/bk.webp";
 
@@ -101,18 +102,11 @@ export default function DigitalCard() {
       setB64Image(null);
       return;
     }
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    img.onload = () => {
-      const canvas = document.createElement('canvas');
-      canvas.width = img.width;
-      canvas.height = img.height;
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(img, 0, 0);
-      setB64Image(canvas.toDataURL('image/png'));
-    };
-    img.onerror = () => setB64Image(null);
-    img.src = imageToUse;
+    let isMounted = true;
+    imageUrlToBase64(imageToUse).then(b64 => {
+      if (isMounted && b64) setB64Image(b64);
+    }).catch(() => {});
+    return () => { isMounted = false; };
   }, [selectedCard?.imageUrl, userProfile?.profileImage]);
 
   // Convert background image to base64 for card
@@ -303,6 +297,13 @@ export default function DigitalCard() {
     if (!cardRef.current || isExporting) return;
     setIsExporting(true);
     try {
+      const imageToUse = selectedCard?.imageUrl || userProfile?.profileImage;
+      let currentB64 = b64Image;
+      if (!currentB64 && imageToUse) {
+        currentB64 = await imageUrlToBase64(imageToUse);
+        if (currentB64) setB64Image(currentB64);
+      }
+
       await document.fonts.ready;
       await new Promise(resolve => setTimeout(resolve, 500));
 
@@ -315,7 +316,10 @@ export default function DigitalCard() {
         allowTaint: true,
         logging: false,
         onclone: function (clonedDoc, element) {
-          // QR is now a plain <img> — no canvas replacement needed
+          if (currentB64) {
+            const profileImgs = element.querySelectorAll('img[alt="' + displayName + '"]');
+            profileImgs.forEach(img => { img.src = currentB64; });
+          }
 
           // Fix any oklch colors
           const allElements = element.getElementsByTagName('*');
@@ -351,6 +355,13 @@ export default function DigitalCard() {
     if (!cardRef.current || isExporting) return;
     setIsExporting(true);
     try {
+      const imageToUse = selectedCard?.imageUrl || userProfile?.profileImage;
+      let currentB64 = b64Image;
+      if (!currentB64 && imageToUse) {
+        currentB64 = await imageUrlToBase64(imageToUse);
+        if (currentB64) setB64Image(currentB64);
+      }
+
       await document.fonts.ready;
       await new Promise(resolve => setTimeout(resolve, 500));
 
@@ -363,7 +374,10 @@ export default function DigitalCard() {
         allowTaint: true,
         logging: false,
         onclone: function (clonedDoc, element) {
-          // QR is now a plain <img> — no canvas replacement needed
+          if (currentB64) {
+            const profileImgs = element.querySelectorAll('img[alt="' + displayName + '"]');
+            profileImgs.forEach(img => { img.src = currentB64; });
+          }
 
           // Fix any oklch colors
           const allElements = element.getElementsByTagName('*');

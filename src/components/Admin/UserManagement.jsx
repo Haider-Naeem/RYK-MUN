@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { supabase } from '../../supabase/config';
 import Sidebar from '../Shared/Sidebar';
-import { formatDate, getInitials } from '../../utils/helpers';
+import { formatDate, getInitials, imageUrlToBase64 } from '../../utils/helpers';
 import { keysToCamel } from '../../utils/cache';
 import { QRCodeCanvas } from 'qrcode.react';
 import html2canvas from 'html2canvas';
@@ -170,22 +170,11 @@ export default function UserManagement() {
       setB64Image(null);
       return;
     }
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    img.onload = () => {
-      try {
-        const canvas = document.createElement('canvas');
-        canvas.width = img.width;
-        canvas.height = img.height;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(img, 0, 0);
-        setB64Image(canvas.toDataURL('image/png'));
-      } catch {
-        setB64Image(null);
-      }
-    };
-    img.onerror = () => setB64Image(null);
-    img.src = imageToUse;
+    let isMounted = true;
+    imageUrlToBase64(imageToUse).then(b64 => {
+      if (isMounted && b64) setB64Image(b64);
+    }).catch(() => {});
+    return () => { isMounted = false; };
   }, [selected?.imageUrl, selected?.profileImage, selected?.profile_image]);
 
   // Fetch QR code when selected registration changes
@@ -407,6 +396,13 @@ export default function UserManagement() {
     if (!cardRef.current || isExporting) return;
     setIsExporting(true);
     try {
+      const imageToUse = selected?.imageUrl || selected?.profileImage || selected?.profile_image;
+      let currentB64 = b64Image;
+      if (!currentB64 && imageToUse) {
+        currentB64 = await imageUrlToBase64(imageToUse);
+        if (currentB64) setB64Image(currentB64);
+      }
+
       await document.fonts.ready;
       await new Promise(resolve => setTimeout(resolve, 500));
       const canvas = await html2canvas(cardRef.current, {
@@ -416,6 +412,10 @@ export default function UserManagement() {
         allowTaint: true,
         logging: false,
         onclone: function (clonedDoc, element) {
+          if (currentB64) {
+            const profileImgs = element.querySelectorAll('img[alt="' + displayName + '"]');
+            profileImgs.forEach(img => { img.src = currentB64; });
+          }
           const allElements = element.getElementsByTagName('*');
           for (let el of allElements) {
             const style = el.style;
@@ -442,6 +442,13 @@ export default function UserManagement() {
     if (!cardRef.current || isExporting) return;
     setIsExporting(true);
     try {
+      const imageToUse = selected?.imageUrl || selected?.profileImage || selected?.profile_image;
+      let currentB64 = b64Image;
+      if (!currentB64 && imageToUse) {
+        currentB64 = await imageUrlToBase64(imageToUse);
+        if (currentB64) setB64Image(currentB64);
+      }
+
       await document.fonts.ready;
       await new Promise(resolve => setTimeout(resolve, 500));
       const canvas = await html2canvas(cardRef.current, {
@@ -451,6 +458,10 @@ export default function UserManagement() {
         allowTaint: true,
         logging: false,
         onclone: function (clonedDoc, element) {
+          if (currentB64) {
+            const profileImgs = element.querySelectorAll('img[alt="' + displayName + '"]');
+            profileImgs.forEach(img => { img.src = currentB64; });
+          }
           const allElements = element.getElementsByTagName('*');
           for (let el of allElements) {
             const style = el.style;
