@@ -516,7 +516,6 @@ export default function DigitalCard() {
                 border: `2px solid ${valid ? '#C9A84C' : '#555'}`,
                 objectFit: 'cover',
               }}
-              crossOrigin="anonymous"
             />
           ) : profileImage ? (
             <img
@@ -530,7 +529,6 @@ export default function DigitalCard() {
                 border: `2px solid ${valid ? '#C9A84C' : '#555'}`,
                 objectFit: 'cover',
               }}
-              crossOrigin="anonymous"
             />
           ) : (
             <div style={{

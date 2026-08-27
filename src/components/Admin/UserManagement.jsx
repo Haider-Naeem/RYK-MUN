@@ -165,7 +165,7 @@ export default function UserManagement() {
 
   // Convert selected profile image to base64
   useEffect(() => {
-    const imageToUse = selected?.imageUrl;
+    const imageToUse = selected?.imageUrl || selected?.profileImage || selected?.profile_image;
     if (!imageToUse) {
       setB64Image(null);
       return;
@@ -173,16 +173,20 @@ export default function UserManagement() {
     const img = new Image();
     img.crossOrigin = 'anonymous';
     img.onload = () => {
-      const canvas = document.createElement('canvas');
-      canvas.width = img.width;
-      canvas.height = img.height;
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(img, 0, 0);
-      setB64Image(canvas.toDataURL('image/png'));
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.width;
+        canvas.height = img.height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0);
+        setB64Image(canvas.toDataURL('image/png'));
+      } catch {
+        setB64Image(null);
+      }
     };
     img.onerror = () => setB64Image(null);
     img.src = imageToUse;
-  }, [selected?.imageUrl]);
+  }, [selected?.imageUrl, selected?.profileImage, selected?.profile_image]);
 
   // Fetch QR code when selected registration changes
   useEffect(() => {
@@ -256,27 +260,52 @@ export default function UserManagement() {
           };
         });
 
-        const enrichedRegs = (regs || []).map(reg => ({
-          ...reg,
-          event_name: reg.event_name || eventMap[reg.event_id]?.name,
-          event_start_date: reg.event_start_date || eventMap[reg.event_id]?.startDate,
-          event_end_date: reg.event_end_date || eventMap[reg.event_id]?.endDate,
-        }));
+        const passMap = {};
+        (passes || []).forEach(p => {
+          passMap[p.id] = p.name;
+        });
+
+        const commMap = {};
+        (comms || []).forEach(c => {
+          commMap[c.id] = c.abbr || c.name;
+        });
 
         const enrichedPassRegs = (passRegs || []).map(pr => {
-          const pass = passes?.find(p => p.id === pr.pass_id);
+          const passName = passMap[pr.pass_id] || pr.pass_name || pr.committee_name || 'Event Pass';
           const ev = eventMap[pr.event_id];
           return {
             ...pr,
             type: 'pass',
-            event_name: ev?.name || 'Unknown',
+            is_pass: true,
+            isPass: true,
+            pass_id: pr.pass_id,
+            passId: pr.pass_id,
+            pass_name: passName,
+            passName: passName,
+            event_name: pr.event_name || ev?.name || 'Unknown Event',
             event_start_date: pr.event_start_date || ev?.startDate,
             event_end_date: pr.event_end_date || ev?.endDate,
-            committeeName: pass?.name || 'Unknown Pass'
+            committee_name: passName,
+            committeeName: passName,
           };
         });
 
-        const combined = [...enrichedRegs, ...enrichedPassRegs].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+        const enrichedRegs = (regs || []).map(reg => {
+          const commName = commMap[reg.committee] || reg.committee_name || reg.committee;
+          const comm = (comms || []).find(c => c.id === reg.committee);
+          return {
+            ...reg,
+            event_name: reg.event_name || eventMap[reg.event_id]?.name || 'Unknown Event',
+            event_start_date: reg.event_start_date || eventMap[reg.event_id]?.startDate,
+            event_end_date: reg.event_end_date || eventMap[reg.event_id]?.endDate,
+            committee_name: commName || reg.committee_name,
+            committeeName: commName || reg.committee_name,
+            committee_abbr: comm?.abbr || reg.committee_abbr || reg.committeeabbr,
+            committeeAbbr: comm?.abbr || reg.committee_abbr || reg.committeeabbr,
+          };
+        });
+
+        const combined = [...enrichedRegs, ...enrichedPassRegs].sort((a, b) => new Date(b.created_at || b.createdAt) - new Date(a.created_at || a.createdAt));
 
         setRegistrations(keysToCamel(combined));
         setEvents(evs || []);
@@ -288,23 +317,27 @@ export default function UserManagement() {
   }, []);
 
   const committeeMap = useMemo(
-    () => Object.fromEntries(committees.map(c => [c.id, c.name])),
+    () => Object.fromEntries(committees.map(c => [c.id, c.abbr || c.name])),
     [committees],
   );
 
   function getCommitteeOrCategory(r) {
+    if (!r) return '—';
     if (r.type === 'sponsor') return r.category || '—';
-    if (r.type === 'pass') return r.committeeName || '—';
-    if (!r.committee) return '—';
-    return committeeMap[r.committee] || r.committeeName || r.committee;
+    if (r.type === 'pass') return r.passName || r.pass_name || r.committeeName || 'Event Pass';
+    if (!r.committee) return r.committeeName || r.committee_name || '—';
+    return committeeMap[r.committee] || r.committeeName || r.committee_name || r.committee;
   }
 
   function getCommitteeName(reg) {
+    if (!reg) return null;
+    if (reg.type === 'pass') return reg.passName || reg.pass_name || reg.committeeName || null;
     if (reg.type !== 'delegate' && reg.type !== 'delegation_member') return null;
+    if (reg.committeeAbbr) return reg.committeeAbbr;
     if (reg.committeeabbr) return reg.committeeabbr;
-    if (!reg.committee) return null;
+    if (!reg.committee) return reg.committeeName || reg.committee_name || null;
     const found = committees.find(c => c.id === reg.committee);
-    return found?.abbr || reg.committee;
+    return found?.abbr || found?.name || reg.committeeName || reg.committee_name || reg.committee;
   }
 
   const committeeFilterOptions = useMemo(() => {
@@ -556,11 +589,10 @@ export default function UserManagement() {
                 border: `2px solid ${valid ? '#C9A84C' : '#555'}`,
                 objectFit: 'cover',
               }}
-              crossOrigin="anonymous"
             />
-          ) : selected?.imageUrl ? (
+          ) : (selected?.imageUrl || selected?.profileImage) ? (
             <img
-              src={selected.imageUrl}
+              src={selected.imageUrl || selected.profileImage}
               alt={displayName}
               style={{
                 display: 'inline-block',
@@ -570,7 +602,6 @@ export default function UserManagement() {
                 border: `2px solid ${valid ? '#C9A84C' : '#555'}`,
                 objectFit: 'cover',
               }}
-              crossOrigin="anonymous"
             />
           ) : (
             <div style={{
@@ -650,10 +681,10 @@ export default function UserManagement() {
                 fontWeight: 500,
                 color: valid ? '#F8F3EA' : '#737373',
               }}>
-                {selected?.passName || 'Event Pass'}
+                {selected?.passName || selected?.pass_name || selected?.committeeName || 'Event Pass'}
               </span>
             </div>
-          ) : committeeName && (
+          ) : (committeeName || selected?.committeeName) ? (
             <div style={{
               display: 'flex',
               justifyContent: 'space-between',
@@ -678,10 +709,10 @@ export default function UserManagement() {
                 fontWeight: 500,
                 color: valid ? '#F8F3EA' : '#737373',
               }}>
-                {committeeName}
+                {committeeName || selected?.committeeName}
               </span>
             </div>
-          )}
+          ) : null}
           {selected?.cnic && (
             <div style={{
               display: 'flex',
@@ -923,9 +954,11 @@ export default function UserManagement() {
                       </div>
                     </div>
 
-                    {/* Committee / Category */}
+                    {/* Committee / Pass Name / Category */}
                     <div className="mb-3">
-                      <p className="text-[10px] uppercase tracking-wider text-[#B79143] mb-1 font-bold">Committee / Category</p>
+                      <p className="text-[10px] uppercase tracking-wider text-[#B79143] mb-1 font-bold">
+                        {r.type === 'pass' ? 'Pass Name' : r.type === 'sponsor' ? 'Category' : 'Committee'}
+                      </p>
                       <p className="text-sm text-[#F8F3EA]">{getCommitteeOrCategory(r)}</p>
                     </div>
 
@@ -1035,7 +1068,8 @@ export default function UserManagement() {
                     ['Event', selected.eventName],
                     ['Phone', selected.phone],
                     ['CNIC', selected.cnic || null],
-                    ['Committee', selected.type === 'delegate' ? getCommitteeOrCategory(selected) : null],
+                    ['Pass Name', selected.type === 'pass' ? (selected.passName || selected.pass_name || selected.committeeName || 'Event Pass') : null],
+                    ['Committee', (selected.type === 'delegate' || selected.type === 'delegation_member') ? getCommitteeOrCategory(selected) : null],
                     ['Sponsor Level', selected.type === 'sponsor' ? selected.category : null],
                     ['Ambassador Code', selected.type === 'delegate' ? selected.ambassadorCode : null],
                     ['Contact Person', selected.contactPerson || null],
