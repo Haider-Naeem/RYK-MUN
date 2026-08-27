@@ -24,27 +24,27 @@ const BORDER_GOLD_STRONG = 'rgba(183,145,67,0.3)';
 function isCardValid(reg) {
   // Use the event dates that we fetched and merged
   const endDate = reg.eventEndDate || reg.eventStartDate;
-  
+
   console.log('Card validation for', reg.id, ':', {
     eventEndDate: reg.eventEndDate,
     eventStartDate: reg.eventStartDate,
     eventName: reg.eventName
   });
-  
+
   if (!endDate) {
     console.warn('No end date found for card:', reg.id);
     return true; // If no dates available, assume valid
   }
-  
+
   const now = new Date();
   now.setHours(0, 0, 0, 0);
-  
+
   const end = new Date(endDate);
   end.setHours(23, 59, 59, 999);
-  
+
   const isValid = now <= end;
   console.log('Card valid?', isValid, '| Now:', now.toISOString(), '| End:', end.toISOString());
-  
+
   return isValid;
 }
 
@@ -164,7 +164,7 @@ export default function DigitalCard() {
 
         // Step 2: Get unique event IDs from registrations
         const eventIds = [...new Set(regs.map(r => r.event_id).filter(Boolean))];
-        
+
         // Step 3: Fetch events to get dates
         let eventMap = {};
         if (eventIds.length > 0) {
@@ -189,7 +189,7 @@ export default function DigitalCard() {
         const normalized = regs.map(reg => {
           const camelReg = keysToCamel(reg);
           const eventData = eventMap[reg.event_id] || {};
-          
+
           return {
             ...camelReg,
             // Use event dates from fetched events (override if registration has its own)
@@ -219,18 +219,18 @@ export default function DigitalCard() {
 
         // Step 5: Fetch committees
         const comms = await cachedCollection('committees');
-        
+
         setCards(normalized);
         setCommittees(comms);
 
         // Auto-select card
         const passedId = location.state?.regId || location.state?.passRegId;
-        const auto = passedId 
-          ? normalized.find(r => r.id === passedId) 
-          : normalized.length === 1 
-            ? normalized[0] 
+        const auto = passedId
+          ? normalized.find(r => r.id === passedId)
+          : normalized.length === 1
+            ? normalized[0]
             : null;
-        
+
         if (auto) await doSelectCard(auto, comms);
       } catch (e) {
         console.error('Error loading cards:', e);
@@ -276,34 +276,64 @@ export default function DigitalCard() {
   const profileImage = selectedCard?.imageUrl || null;
   const padClass = adminPadClass(userProfile);
 
-  async function saveAsImage() {
-    if (!cardRef.current || isExporting) return;
+  // ── Reliable QR data URL from the LIVE canvas (critical for iOS) ──
+  function getQrDataUrl() {
+    // Prefer the live canvas via ref
+    const canvas = qrCanvasRef.current;
+    if (canvas && typeof canvas.toDataURL === 'function') {
+      try {
+        return canvas.toDataURL('image/png');
+      } catch (e) {
+        console.warn('QR toDataURL via ref failed', e);
+      }
+    }
+
+    // Fallback: look inside the card
+    const liveCanvas = cardRef.current?.querySelector('canvas');
+    if (liveCanvas) {
+      try {
+        return liveCanvas.toDataURL('image/png');
+      } catch (e) {
+        console.warn('Fallback QR toDataURL failed', e);
+      }
+    }
+    return null;
+  }
+
+  // ── Shared capture logic (works on iOS Safari / Chrome + Android) ──
+  async function captureCard() {
+    if (!cardRef.current || isExporting) return null;
     setIsExporting(true);
+
     try {
       await document.fonts.ready;
-      await new Promise(resolve => setTimeout(resolve, 500));
+      // Give iOS extra time to finish painting the QR canvas
+      await new Promise(resolve => setTimeout(resolve, 800));
 
-      const cardElement = cardRef.current;
+      // CRITICAL: capture from the LIVE canvas BEFORE html2canvas
+      const qrDataUrl = getQrDataUrl();
 
-      const canvas = await html2canvas(cardElement, {
-        scale: 4,
+      const canvas = await html2canvas(cardRef.current, {
+        scale: 3,                    // 4 is too heavy for many iOS devices
         backgroundColor: '#3A0810',
         useCORS: true,
-        allowTaint: true,
+        allowTaint: false,           // safer on iOS once QR is an <img>
         logging: false,
-        onclone: function(clonedDoc, element) {
-          // Find QR canvas in cloned document and replace with image
-          const qrCanvas = element.querySelector('canvas');
-          if (qrCanvas) {
-            const qrImage = new Image();
-            qrImage.src = qrCanvas.toDataURL('image/png');
-            qrImage.style.width = '140px';
-            qrImage.style.height = '140px';
-            qrImage.style.display = 'inline-block';
-            qrCanvas.parentElement.replaceChild(qrImage, qrCanvas);
-          }
+        onclone: (clonedDoc, element) => {
+          // Replace every canvas with an <img> that uses the pre-captured data URL
+          const canvases = element.querySelectorAll('canvas');
+          canvases.forEach(c => {
+            if (!qrDataUrl) return;
+            const img = clonedDoc.createElement('img');
+            img.src = qrDataUrl;
+            img.style.width = '140px';
+            img.style.height = '140px';
+            img.style.display = 'inline-block';
+            img.style.objectFit = 'contain';
+            c.parentNode?.replaceChild(img, c);
+          });
 
-          // Fix any oklch colors
+          // Fix any oklch colors (Safari / modern browsers)
           const allElements = element.getElementsByTagName('*');
           for (let el of allElements) {
             const style = el.style;
@@ -317,74 +347,38 @@ export default function DigitalCard() {
               style.borderColor = '#B79143';
             }
           }
-        }
+        },
       });
 
-      const link = document.createElement('a');
-      link.download = `MUNRYK-Card-${displayName.replace(/\s+/g, '_')}.png`;
-      link.href = canvas.toDataURL('image/png');
-      link.click();
-      toast.success('Card saved as image!');
+      return canvas;
     } catch (error) {
-      console.error('Save Image Error:', error);
+      console.error('Capture Error:', error);
       toast.error('Save failed: ' + error.message);
+      return null;
     } finally {
       setIsExporting(false);
     }
   }
 
+  async function saveAsImage() {
+    const canvas = await captureCard();
+    if (!canvas) return;
+
+    const link = document.createElement('a');
+    link.download = `MUNRYK-Card-${displayName.replace(/\s+/g, '_')}.png`;
+    link.href = canvas.toDataURL('image/png');
+    link.click();
+    toast.success('Card saved as image!');
+  }
+
   async function saveAsPDF() {
-    if (!cardRef.current || isExporting) return;
-    setIsExporting(true);
-    try {
-      await document.fonts.ready;
-      await new Promise(resolve => setTimeout(resolve, 500));
+    const canvas = await captureCard();
+    if (!canvas) return;
 
-      const cardElement = cardRef.current;
-
-      const canvas = await html2canvas(cardElement, {
-        scale: 4,
-        backgroundColor: '#3A0810',
-        useCORS: true,
-        allowTaint: true,
-        logging: false,
-        onclone: function(clonedDoc, element) {
-          const qrCanvas = element.querySelector('canvas');
-          if (qrCanvas) {
-            const qrImage = new Image();
-            qrImage.src = qrCanvas.toDataURL('image/png');
-            qrImage.style.width = '140px';
-            qrImage.style.height = '140px';
-            qrImage.style.display = 'inline-block';
-            qrCanvas.parentElement.replaceChild(qrImage, qrCanvas);
-          }
-
-          const allElements = element.getElementsByTagName('*');
-          for (let el of allElements) {
-            const style = el.style;
-            if (style.color && style.color.includes('oklch')) {
-              style.color = '#FFFFFF';
-            }
-            if (style.backgroundColor && style.backgroundColor.includes('oklch')) {
-              style.backgroundColor = '#3A0810';
-            }
-            if (style.borderColor && style.borderColor.includes('oklch')) {
-              style.borderColor = '#B79143';
-            }
-          }
-        }
-      });
-
-      const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: [90, 145] });
-      pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 0, 0, 90, 145);
-      pdf.save(`MUNRYK-Card-${displayName.replace(/\s+/g, '_')}.pdf`);
-      toast.success('Card saved as PDF!');
-    } catch (error) {
-      console.error('Save PDF Error:', error);
-      toast.error('Save failed: ' + error.message);
-    } finally {
-      setIsExporting(false);
-    }
+    const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: [90, 145] });
+    pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 0, 0, 90, 145);
+    pdf.save(`MUNRYK-Card-${displayName.replace(/\s+/g, '_')}.pdf`);
+    toast.success('Card saved as PDF!');
   }
 
   // Card Component
@@ -429,7 +423,7 @@ export default function DigitalCard() {
           background: 'repeating-linear-gradient(45deg, rgba(201,168,76,0.02) 0px, rgba(201,168,76,0.02) 1px, transparent 1px, transparent 10px)',
         }}
       />
-      
+
       {/* Gold line top */}
       <div
         style={{
@@ -660,7 +654,6 @@ export default function DigitalCard() {
                 fontWeight: 'bold',
                 textTransform: 'uppercase',
                 letterSpacing: '0.05em',
-                color: valid ? '#B79143' : '#525252',
               }}>
                 CNIC
               </span>
@@ -688,6 +681,7 @@ export default function DigitalCard() {
             boxShadow: '0 10px 15px rgba(0,0,0,0.3)',
           }}>
             <QRCodeCanvas
+              ref={qrCanvasRef}
               value={qrValue}
               size={140}
               bgColor="#ffffff"
@@ -734,7 +728,7 @@ export default function DigitalCard() {
         <img src={BG_SRC} alt="" className="w-full h-full object-cover grayscale brightness-[0.15]" />
         <div className="absolute inset-0" style={{ background: BG_GRADIENT }} />
       </div>
-      
+
       {/* Glow effects */}
       <div className="fixed -top-32 -left-32 w-[420px] h-[420px] rounded-full blur-3xl opacity-40 pointer-events-none"
         style={{ background: GLOW_GOLD }} />
@@ -793,11 +787,10 @@ export default function DigitalCard() {
                           type="button"
                           key={card.id}
                           onClick={() => doSelectCard(card)}
-                          className={`min-w-[200px] max-w-[220px] shrink-0 cursor-pointer rounded-xl border p-4 text-left transition-all duration-300 hover:scale-[1.02] ${
-                            isActive
+                          className={`min-w-[200px] max-w-[220px] shrink-0 cursor-pointer rounded-xl border p-4 text-left transition-all duration-300 hover:scale-[1.02] ${isActive
                               ? 'border-[#B79143] bg-[#B79143]/10 shadow-lg shadow-[#B79143]/10'
                               : 'border-[rgba(183,145,67,0.2)] hover:border-[#B79143]/40'
-                          }`}
+                            }`}
                           style={{ backgroundColor: isActive ? 'rgba(183,145,67,0.1)' : PANEL_BG }}
                         >
                           <div className="mb-2 text-sm font-bold text-[#F8F3EA]">{card.eventName}</div>
@@ -806,11 +799,10 @@ export default function DigitalCard() {
                               style={{ borderColor: 'rgba(183,145,67,0.3)', backgroundColor: 'rgba(183,145,67,0.08)' }}>
                               {card.type}
                             </span>
-                            <span className={`rounded-lg px-2.5 py-1 text-[10px] font-semibold uppercase ${
-                              v
+                            <span className={`rounded-lg px-2.5 py-1 text-[10px] font-semibold uppercase ${v
                                 ? 'border border-emerald-400/30 bg-emerald-500/15 text-emerald-300'
                                 : 'border border-red-400/30 bg-red-500/15 text-red-300'
-                            }`}>
+                              }`}>
                               {v ? 'Valid' : 'Expired'}
                             </span>
                           </div>
