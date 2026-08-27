@@ -3,7 +3,11 @@ import { supabase } from '../../supabase/config';
 import Sidebar from '../Shared/Sidebar';
 import { formatDate, getInitials } from '../../utils/helpers';
 import { keysToCamel } from '../../utils/cache';
+import { QRCodeCanvas } from 'qrcode.react';
+import html2canvas from 'html2canvas';
+import { jsPDF } from 'jspdf';
 import bk from "../../Assets/bk.webp";
+import toast from 'react-hot-toast';
 
 // ── Constants (Matching your design system) ──
 const BG_SRC = bk;
@@ -27,6 +31,32 @@ function statusBadge(status) {
   if (status === 'approved') return `${base} bg-emerald-500/15 text-emerald-300 border border-emerald-400/30`;
   if (status === 'rejected') return `${base} bg-red-500/15 text-red-300 border border-red-400/30`;
   return `${base} bg-amber-500/15 text-amber-200 border border-amber-400/30`;
+}
+
+// ── Card Validity Helpers ──
+function isCardValid(reg) {
+  const endDate = reg.eventEndDate || reg.eventStartDate;
+  if (!endDate) return true;
+  const now = new Date();
+  now.setHours(0, 0, 0, 0);
+  const end = new Date(endDate);
+  end.setHours(23, 59, 59, 999);
+  return now <= end;
+}
+
+function formatDateStr(dateStr) {
+  if (!dateStr) return '';
+  const date = new Date(dateStr);
+  if (isNaN(date.getTime())) {
+    const sep = dateStr.includes('/') ? '/' : '-';
+    const parts = dateStr.split(sep);
+    if (parts.length === 3) {
+      const [year, month, day] = parts;
+      return `${day}/${month}/${year}`;
+    }
+    return dateStr;
+  }
+  return date.toLocaleDateString('en-PK', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
 function MultiSelectFilter({ label, options, selected, onToggle, onClear }) {
@@ -97,40 +127,157 @@ function MultiSelectFilter({ label, options, selected, onToggle, onClear }) {
 
 export default function UserManagement() {
   const [registrations, setRegistrations] = useState([]);
-  const [events,        setEvents]        = useState([]);
-  const [committees,    setCommittees]    = useState([]);
-  const [loading,       setLoading]       = useState(true);
+  const [events, setEvents] = useState([]);
+  const [committees, setCommittees] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [selectedEventIds, setSelectedEventIds] = useState([]);
   const [selectedCommitteeKeys, setSelectedCommitteeKeys] = useState([]);
-  const [filterType,    setFilterType]    = useState('all');
-  const [filterStatus,  setFilterStatus]  = useState('all');
-  const [search,        setSearch]        = useState('');
-  const [selected,      setSelected]      = useState(null);
+  const [filterType, setFilterType] = useState('all');
+  const [filterStatus, setFilterStatus] = useState('all');
+  const [search, setSearch] = useState('');
+  const [selected, setSelected] = useState(null);
 
+  // ── Digital Card Preview State ──
+  const [qrData, setQrData] = useState(undefined);
+  const [qrLoading, setQrLoading] = useState(false);
+  const [qrImageUrl, setQrImageUrl] = useState(null);
+  const [b64Image, setB64Image] = useState(null);
+  const [bgB64, setBgB64] = useState(null);
+  const [isExporting, setIsExporting] = useState(false);
+  const cardRef = useRef();
+  const hiddenQrRef = useRef();
+
+  // Convert background image to base64 once
+  useEffect(() => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = img.width;
+      canvas.height = img.height;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0);
+      setBgB64(canvas.toDataURL('image/png'));
+    };
+    img.onerror = () => setBgB64(null);
+    img.src = BG_SRC;
+  }, []);
+
+  // Convert selected profile image to base64
+  useEffect(() => {
+    const imageToUse = selected?.imageUrl;
+    if (!imageToUse) {
+      setB64Image(null);
+      return;
+    }
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = img.width;
+      canvas.height = img.height;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0);
+      setB64Image(canvas.toDataURL('image/png'));
+    };
+    img.onerror = () => setB64Image(null);
+    img.src = imageToUse;
+  }, [selected?.imageUrl]);
+
+  // Fetch QR code when selected registration changes
+  useEffect(() => {
+    if (!selected) {
+      setQrData(undefined);
+      setQrImageUrl(null);
+      return;
+    }
+    async function fetchQr() {
+      setQrLoading(true);
+      try {
+        let query = supabase.from('qr_codes').select('*');
+        if (selected.type === 'pass') {
+          query = query.eq('pass_registration_id', selected.id);
+        } else {
+          query = query.eq('registration_id', selected.id);
+        }
+        const { data, error } = await query;
+        if (error) throw error;
+        setQrData(data?.length > 0 ? keysToCamel(data[0]) : null);
+      } catch (e) {
+        console.error('Error fetching QR:', e);
+        setQrData(null);
+      } finally {
+        setQrLoading(false);
+      }
+    }
+    fetchQr();
+  }, [selected]);
+
+  // Generate QR base64 image for reliable html2canvas export on iOS
+  useEffect(() => {
+    if (!qrData?.qrToken || qrData.qrToken === 'MUNRYK-INVALID') {
+      setQrImageUrl(null);
+      return;
+    }
+    const timer = setTimeout(() => {
+      const canvas = hiddenQrRef.current?.querySelector('canvas');
+      if (canvas) {
+        try {
+          const url = canvas.toDataURL('image/png');
+          setQrImageUrl(url);
+        } catch (err) {
+          console.error('QR toDataURL failed:', err);
+          setQrImageUrl(null);
+        }
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [qrData]);
+
+  // ── Data Loading ──
   useEffect(() => {
     async function load() {
       try {
         const [{ data: regs }, { data: evs }, { data: comms }, { data: passRegs }, { data: passes }] = await Promise.all([
           supabase.from('registrations').select('*').order('created_at', { ascending: false }),
-          supabase.from('events').select('id, name'),
-          supabase.from('committees').select('id, name'),
+          supabase.from('events').select('id, name, start_date, end_date, date'),
+          supabase.from('committees').select('id, name, abbr'),
           supabase.from('pass_registrations').select('*').order('created_at', { ascending: false }),
           supabase.from('event_passes').select('id, name')
         ]);
-        
-        const mappedPassRegs = (passRegs || []).map(pr => {
+
+        // Build event lookup map for date merging
+        const eventMap = {};
+        (evs || []).forEach(ev => {
+          eventMap[ev.id] = {
+            name: ev.name,
+            startDate: ev.start_date || ev.date,
+            endDate: ev.end_date,
+          };
+        });
+
+        const enrichedRegs = (regs || []).map(reg => ({
+          ...reg,
+          event_name: reg.event_name || eventMap[reg.event_id]?.name,
+          event_start_date: reg.event_start_date || eventMap[reg.event_id]?.startDate,
+          event_end_date: reg.event_end_date || eventMap[reg.event_id]?.endDate,
+        }));
+
+        const enrichedPassRegs = (passRegs || []).map(pr => {
           const pass = passes?.find(p => p.id === pr.pass_id);
-          const ev = evs?.find(e => e.id === pr.event_id);
+          const ev = eventMap[pr.event_id];
           return {
             ...pr,
             type: 'pass',
             event_name: ev?.name || 'Unknown',
+            event_start_date: pr.event_start_date || ev?.startDate,
+            event_end_date: pr.event_end_date || ev?.endDate,
             committeeName: pass?.name || 'Unknown Pass'
           };
         });
-        
-        const combined = [...(regs || []), ...mappedPassRegs].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-        
+
+        const combined = [...enrichedRegs, ...enrichedPassRegs].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
         setRegistrations(keysToCamel(combined));
         setEvents(evs || []);
         setCommittees(keysToCamel(comms || []));
@@ -150,6 +297,14 @@ export default function UserManagement() {
     if (r.type === 'pass') return r.committeeName || '—';
     if (!r.committee) return '—';
     return committeeMap[r.committee] || r.committeeName || r.committee;
+  }
+
+  function getCommitteeName(reg) {
+    if (reg.type !== 'delegate' && reg.type !== 'delegation_member') return null;
+    if (reg.committeeabbr) return reg.committeeabbr;
+    if (!reg.committee) return null;
+    const found = committees.find(c => c.id === reg.committee);
+    return found?.abbr || reg.committee;
   }
 
   const committeeFilterOptions = useMemo(() => {
@@ -195,7 +350,7 @@ export default function UserManagement() {
 
   const filtered = registrations.filter(r => {
     const matchEvent = selectedEventIds.length === 0 || selectedEventIds.includes(String(r.eventId));
-    const matchType   = filterType   === 'all' || r.type          === filterType;
+    const matchType = filterType === 'all' || r.type === filterType;
     const matchStatus = filterStatus === 'all' || r.paymentStatus === filterStatus;
     const matchCommittee = matchesCommitteeFilters(r);
 
@@ -208,6 +363,420 @@ export default function UserManagement() {
 
     return matchEvent && matchType && matchStatus && matchCommittee && matchSearch;
   });
+
+  // ── Digital Card Export Functions ──
+  const displayName = selected?.fullName || selected?.companyName || 'Participant';
+  const committeeName = selected ? getCommitteeName(selected) : null;
+  const valid = selected ? isCardValid(selected) : true;
+  const qrValue = qrData?.qrToken || 'MUNRYK-INVALID';
+
+  async function saveAsImage() {
+    if (!cardRef.current || isExporting) return;
+    setIsExporting(true);
+    try {
+      await document.fonts.ready;
+      await new Promise(resolve => setTimeout(resolve, 500));
+      const canvas = await html2canvas(cardRef.current, {
+        scale: 4,
+        backgroundColor: '#3A0810',
+        useCORS: true,
+        allowTaint: true,
+        logging: false,
+        onclone: function (clonedDoc, element) {
+          const allElements = element.getElementsByTagName('*');
+          for (let el of allElements) {
+            const style = el.style;
+            if (style.color && style.color.includes('oklch')) style.color = '#FFFFFF';
+            if (style.backgroundColor && style.backgroundColor.includes('oklch')) style.backgroundColor = '#3A0810';
+            if (style.borderColor && style.borderColor.includes('oklch')) style.borderColor = '#B79143';
+          }
+        }
+      });
+      const link = document.createElement('a');
+      link.download = `MUNRYK-Card-${displayName.replace(/\s+/g, '_')}.png`;
+      link.href = canvas.toDataURL('image/png');
+      link.click();
+      toast.success('Card saved as image!');
+    } catch (error) {
+      console.error('Save Image Error:', error);
+      toast.error('Save failed: ' + error.message);
+    } finally {
+      setIsExporting(false);
+    }
+  }
+
+  async function saveAsPDF() {
+    if (!cardRef.current || isExporting) return;
+    setIsExporting(true);
+    try {
+      await document.fonts.ready;
+      await new Promise(resolve => setTimeout(resolve, 500));
+      const canvas = await html2canvas(cardRef.current, {
+        scale: 4,
+        backgroundColor: '#3A0810',
+        useCORS: true,
+        allowTaint: true,
+        logging: false,
+        onclone: function (clonedDoc, element) {
+          const allElements = element.getElementsByTagName('*');
+          for (let el of allElements) {
+            const style = el.style;
+            if (style.color && style.color.includes('oklch')) style.color = '#FFFFFF';
+            if (style.backgroundColor && style.backgroundColor.includes('oklch')) style.backgroundColor = '#3A0810';
+            if (style.borderColor && style.borderColor.includes('oklch')) style.borderColor = '#B79143';
+          }
+        }
+      });
+      const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: [90, 145] });
+      pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 0, 0, 90, 145);
+      pdf.save(`MUNRYK-Card-${displayName.replace(/\s+/g, '_')}.pdf`);
+      toast.success('Card saved as PDF!');
+    } catch (error) {
+      console.error('Save PDF Error:', error);
+      toast.error('Save failed: ' + error.message);
+    } finally {
+      setIsExporting(false);
+    }
+  }
+
+  // ── Card Component (Same as DigitalCard) ──
+  const CardComponent = () => (
+    <div
+      ref={cardRef}
+      style={{
+        position: 'relative',
+        width: '300px',
+        minHeight: '480px',
+        flexShrink: 0,
+        overflow: 'hidden',
+        borderRadius: '14px',
+        border: `1.5px solid ${valid ? '#B79143' : '#525252'}`,
+        padding: '20px',
+        boxShadow: valid ? '0 16px 48px rgba(0,0,0,0.55)' : '0 16px 48px rgba(0,0,0,0.4)',
+        backgroundImage: bgB64 ? `url(${bgB64})` : 'none',
+        backgroundSize: 'cover',
+        backgroundPosition: 'center',
+        backgroundRepeat: 'no-repeat',
+      }}
+    >
+      {/* Dark overlay */}
+      <div
+        style={{
+          position: 'absolute',
+          inset: 0,
+          background: valid
+            ? 'linear-gradient(160deg, rgba(58,8,16,0.85) 0%, rgba(107,15,26,0.8) 45%, rgba(74,10,18,0.85) 100%)'
+            : 'linear-gradient(160deg, rgba(26,26,26,0.9) 0%, rgba(42,42,42,0.85) 45%, rgba(26,26,26,0.9) 100%)',
+          borderRadius: '14px',
+        }}
+      />
+      {/* Pattern overlay */}
+      <div
+        style={{
+          pointerEvents: 'none',
+          position: 'absolute',
+          inset: 0,
+          borderRadius: '14px',
+          background: 'repeating-linear-gradient(45deg, rgba(201,168,76,0.02) 0px, rgba(201,168,76,0.02) 1px, transparent 1px, transparent 10px)',
+        }}
+      />
+      {/* Gold line top */}
+      <div
+        style={{
+          position: 'absolute',
+          left: 0,
+          right: 0,
+          top: 0,
+          height: '3px',
+          background: valid
+            ? 'linear-gradient(90deg, transparent, #C9A84C 30%, #FFD700 50%, #C9A84C 70%, transparent)'
+            : 'linear-gradient(90deg, transparent, #666 50%, transparent)',
+          zIndex: 1,
+        }}
+      />
+      {/* EXPIRED overlay */}
+      {!valid && (
+        <div style={{
+          position: 'absolute',
+          inset: 0,
+          zIndex: 10,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          borderRadius: '14px',
+          backgroundColor: 'rgba(0,0,0,0.55)',
+        }}>
+          <div style={{
+            transform: 'rotate(-12deg)',
+            borderRadius: '6px',
+            border: '2px solid rgba(252,165,165,0.5)',
+            padding: '12px 28px',
+            fontFamily: 'Cinzel, serif',
+            fontSize: '24px',
+            fontWeight: 900,
+            letterSpacing: '0.1em',
+            color: '#FFFFFF',
+            backgroundColor: 'rgba(192,57,43,0.9)',
+            boxShadow: '0 10px 15px rgba(0,0,0,0.3)',
+          }}>
+            EXPIRED
+          </div>
+        </div>
+      )}
+      {/* Content */}
+      <div style={{ position: 'relative', zIndex: 1 }}>
+        {/* Header */}
+        <div style={{ marginBottom: '14px', textAlign: 'center' }}>
+          <div style={{
+            fontFamily: 'Cinzel, serif',
+            fontSize: '20px',
+            fontWeight: 900,
+            letterSpacing: '0.22em',
+            color: valid ? '#D7B46A' : '#737373',
+          }}>
+            RYK MUN
+          </div>
+          <div style={{
+            marginTop: '4px',
+            height: '1px',
+            background: `linear-gradient(90deg, transparent, ${valid ? 'rgba(201,168,76,0.4)' : 'rgba(100,100,100,0.3)'}, transparent)`,
+          }} />
+        </div>
+        {/* Profile Image */}
+        <div style={{ marginBottom: '12px', textAlign: 'center' }}>
+          {b64Image ? (
+            <img
+              src={b64Image}
+              alt={displayName}
+              style={{
+                display: 'inline-block',
+                width: '140px',
+                height: '140px',
+                borderRadius: '50%',
+                border: `2px solid ${valid ? '#C9A84C' : '#555'}`,
+                objectFit: 'cover',
+              }}
+              crossOrigin="anonymous"
+            />
+          ) : selected?.imageUrl ? (
+            <img
+              src={selected.imageUrl}
+              alt={displayName}
+              style={{
+                display: 'inline-block',
+                width: '140px',
+                height: '140px',
+                borderRadius: '50%',
+                border: `2px solid ${valid ? '#C9A84C' : '#555'}`,
+                objectFit: 'cover',
+              }}
+              crossOrigin="anonymous"
+            />
+          ) : (
+            <div style={{
+              display: 'inline-flex',
+              width: '140px',
+              height: '140px',
+              alignItems: 'center',
+              justifyContent: 'center',
+              borderRadius: '50%',
+              border: `2px solid ${valid ? '#B79143' : '#525252'}`,
+              backgroundColor: valid ? 'rgba(183,145,67,0.1)' : 'rgba(38,38,38,0.3)',
+              color: valid ? '#B79143' : '#737373',
+              fontFamily: 'Cinzel, serif',
+              fontSize: '48px',
+            }}>
+              {displayName[0]?.toUpperCase()}
+            </div>
+          )}
+        </div>
+        {/* Details Table */}
+        <div style={{
+          marginBottom: '14px',
+          borderRadius: '6px',
+          backgroundColor: 'rgba(0,0,0,0.25)',
+          padding: '10px 12px',
+        }}>
+          <div style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            gap: '8px',
+            borderBottom: '1px solid rgba(183,145,67,0.1)',
+            padding: '4px 0',
+          }}>
+            <span style={{
+              fontFamily: 'Montserrat, sans-serif',
+              fontSize: '9px',
+              fontWeight: 'bold',
+              textTransform: 'uppercase',
+              letterSpacing: '0.05em',
+              color: valid ? '#B79143' : '#525252',
+            }}>
+              NAME
+            </span>
+            <span style={{
+              maxWidth: '165px',
+              textAlign: 'right',
+              fontFamily: 'Montserrat, sans-serif',
+              fontSize: '11px',
+              fontWeight: 500,
+              color: valid ? '#F8F3EA' : '#737373',
+            }}>
+              {displayName} ({selected?.type === 'delegate' ? 'Delegate' : selected?.type === 'sponsor' ? 'Sponsor' : selected?.type === 'pass' ? 'Pass' : 'Member'})
+            </span>
+          </div>
+          {selected?.type === 'pass' ? (
+            <div style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              gap: '8px',
+              padding: '4px 0',
+            }}>
+              <span style={{
+                fontFamily: 'Montserrat, sans-serif',
+                fontSize: '9px',
+                fontWeight: 'bold',
+                textTransform: 'uppercase',
+                letterSpacing: '0.05em',
+                color: valid ? '#B79143' : '#525252',
+              }}>
+                PASS NAME
+              </span>
+              <span style={{
+                maxWidth: '165px',
+                textAlign: 'right',
+                fontFamily: 'Montserrat, sans-serif',
+                fontSize: '11px',
+                fontWeight: 500,
+                color: valid ? '#F8F3EA' : '#737373',
+              }}>
+                {selected?.passName || 'Event Pass'}
+              </span>
+            </div>
+          ) : committeeName && (
+            <div style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              gap: '8px',
+              padding: '4px 0',
+            }}>
+              <span style={{
+                fontFamily: 'Montserrat, sans-serif',
+                fontSize: '9px',
+                fontWeight: 'bold',
+                textTransform: 'uppercase',
+                letterSpacing: '0.05em',
+                color: valid ? '#B79143' : '#525252',
+              }}>
+                COMMITTEE
+              </span>
+              <span style={{
+                maxWidth: '165px',
+                textAlign: 'right',
+                fontFamily: 'Montserrat, sans-serif',
+                fontSize: '11px',
+                fontWeight: 500,
+                color: valid ? '#F8F3EA' : '#737373',
+              }}>
+                {committeeName}
+              </span>
+            </div>
+          )}
+          {selected?.cnic && (
+            <div style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              gap: '8px',
+              padding: selected?.type === 'pass' || committeeName ? '4px 0 0 0' : '4px 0',
+              borderTop: '1px solid rgba(183,145,67,0.1)',
+              marginTop: '4px'
+            }}>
+              <span style={{
+                fontFamily: 'Montserrat, sans-serif',
+                fontSize: '9px',
+                fontWeight: 'bold',
+                textTransform: 'uppercase',
+                letterSpacing: '0.05em',
+                color: valid ? '#B79143' : '#525252',
+              }}>
+                CNIC
+              </span>
+              <span style={{
+                maxWidth: '165px',
+                textAlign: 'right',
+                fontFamily: 'Montserrat, sans-serif',
+                fontSize: '11px',
+                fontWeight: 500,
+                color: valid ? '#F8F3EA' : '#737373',
+              }}>
+                {selected?.cnic}
+              </span>
+            </div>
+          )}
+        </div>
+        {/* QR Code */}
+        <div style={{ marginBottom: '10px', textAlign: 'center' }}>
+          <div style={{
+            display: 'inline-block',
+            borderRadius: '8px',
+            backgroundColor: '#FFFFFF',
+            padding: '10px',
+            boxShadow: '0 10px 15px rgba(0,0,0,0.3)',
+          }}>
+            {qrImageUrl ? (
+              <img
+                src={qrImageUrl}
+                alt="QR Code"
+                style={{
+                  width: '140px',
+                  height: '140px',
+                  display: 'inline-block',
+                }}
+                loading="eager"
+              />
+            ) : (
+              <div style={{
+                width: '140px',
+                height: '140px',
+                background: '#fff',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                borderRadius: '4px',
+              }}>
+                <span style={{ fontSize: '10px', color: '#999' }}>Loading…</span>
+              </div>
+            )}
+          </div>
+          <div style={{
+            marginTop: '6px',
+            fontFamily: 'Montserrat, sans-serif',
+            fontSize: '9px',
+            fontWeight: 'bold',
+            textTransform: 'uppercase',
+            letterSpacing: '0.1em',
+            color: valid ? '#B79143' : '#525252',
+          }}>
+            {valid ? 'SCAN TO VERIFY' : 'CARD EXPIRED'}
+          </div>
+        </div>
+        {/* Footer */}
+        <div style={{
+          borderTop: `1px solid ${valid ? 'rgba(183,145,67,0.2)' : '#404040'}`,
+          paddingTop: '10px',
+          textAlign: 'center',
+          fontFamily: 'Montserrat, sans-serif',
+          fontSize: '9px',
+          fontWeight: 'bold',
+          textTransform: 'uppercase',
+          letterSpacing: '0.1em',
+          color: valid ? '#B79143' : '#525252',
+        }}>
+          ◆ OFFICIAL DIGITAL PASS ◆
+        </div>
+      </div>
+    </div>
+  );
 
   // ── Background Components ──
   const BackgroundOverlay = () => (
@@ -229,7 +798,7 @@ export default function UserManagement() {
       <BackgroundOverlay />
       <GlowEffects />
       <Sidebar />
-      
+
       <div className="relative z-10 px-4 pb-12 pt-20 sm:px-6 md:px-8 md:pt-8">
         {/* Header */}
         <div className="mb-8">
@@ -306,7 +875,7 @@ export default function UserManagement() {
               {filtered.map(r => {
                 const name = r.fullName || r.companyName || '—';
                 const typeLabel = r.type === 'delegate' ? '🧑‍💼 Delegate' : r.type === 'delegation' ? '👥 Delegation' : r.type === 'delegation_member' ? '🧑‍💼 Delegation Member' : r.type === 'pass' ? '🎫 Pass' : '🏢 Sponsor';
-                
+
                 return (
                   <div
                     key={r.id}
@@ -488,6 +1057,81 @@ export default function UserManagement() {
                       </span>
                     </div>
                   ))}
+                </div>
+
+                {/* ── Digital Card Preview ── */}
+                <div className="mt-6 pt-6 border-t" style={{ borderColor: BORDER_GOLD_LIGHT }}>
+                  <p className="text-[10px] uppercase tracking-wider text-[#B79143] mb-4 font-bold text-center">
+                    Digital Pass
+                  </p>
+
+                  {qrLoading ? (
+                    <div className="flex flex-col items-center py-8">
+                      <div className="w-8 h-8 rounded-full border-2 border-[#B79143]/20 border-t-[#B79143] animate-spin mb-3" />
+                      <p className="text-xs text-[#b89b84]">Checking card status…</p>
+                    </div>
+                  ) : qrData === null ? (
+                    <div className="text-center py-6">
+                      <div className="text-3xl mb-2">⏳</div>
+                      <p className="text-sm text-[#b89b84]">No digital pass generated yet</p>
+                    </div>
+                  ) : qrData ? (
+                    <div className="flex flex-col items-center gap-4">
+                      {/* Hidden off-screen QR canvas for base64 generation */}
+                      <div
+                        ref={hiddenQrRef}
+                        style={{ position: 'fixed', left: '-9999px', top: '-9999px', visibility: 'hidden', zIndex: -1 }}
+                      >
+                        <QRCodeCanvas
+                          value={qrValue}
+                          size={280}
+                          bgColor="#ffffff"
+                          fgColor={valid ? '#3A0810' : '#666666'}
+                          level="H"
+                          includeMargin={false}
+                        />
+                      </div>
+
+                      <CardComponent />
+
+                      <div className="flex flex-wrap gap-3 justify-center">
+                        <button
+                          type="button"
+                          className="rounded-xl bg-gradient-to-r from-[#8E6B2F] via-[#B79143] to-[#D7B46A] px-5 py-2.5 text-sm font-semibold text-[#2A0B12] transition-all duration-300 hover:scale-[1.02] hover:shadow-lg hover:shadow-[#B79143]/20 disabled:opacity-50"
+                          onClick={saveAsImage}
+                          disabled={isExporting}
+                        >
+                          {isExporting ? '⏳ Saving...' : '📥 Save as Image'}
+                        </button>
+                        <button
+                          type="button"
+                          className="rounded-xl border px-5 py-2.5 text-sm font-semibold text-[#B79143] transition-all duration-300 hover:bg-[#B79143]/10 disabled:opacity-50"
+                          style={{ borderColor: BORDER_GOLD_STRONG }}
+                          onClick={saveAsPDF}
+                          disabled={isExporting}
+                        >
+                          {isExporting ? '⏳ Saving...' : '📄 Save as PDF'}
+                        </button>
+                      </div>
+
+                      <div className="w-full text-sm rounded-xl border backdrop-blur-xl p-4" style={{ borderColor: BORDER_GOLD, backgroundColor: PANEL_BG }}>
+                        <div className="mb-1.5 flex items-center gap-2 justify-center">
+                          <span>{valid ? '🟢' : '🔴'}</span>
+                          <strong className={valid ? 'text-emerald-400' : 'text-red-400'}>
+                            {valid ? 'Card Valid' : 'Card Expired'}
+                          </strong>
+                        </div>
+                        <p className="mt-1.5 text-xs text-[#b89b84] text-center">
+                          QR: {qrData.isUsed ? '🔴 Already scanned' : '🟢 Not yet scanned'}
+                        </p>
+                        {selected?.eventEndDate && (
+                          <p className="mt-1 text-xs text-[#b89b84] text-center">
+                            📅 Expires: {formatDateStr(selected.eventEndDate)}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
               </div>
             </div>
