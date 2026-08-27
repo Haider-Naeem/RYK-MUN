@@ -17,17 +17,16 @@ export default {
     let path = url.pathname;
     if (path.startsWith('/')) path = path.slice(1);
 
-    // Auth check
-    const secret = request.headers.get('X-Upload-Secret');
-    if (secret !== env.UPLOAD_SECRET) {
-      return new Response('Unauthorized', { 
-        status: 401,
-        headers: { 'Access-Control-Allow-Origin': '*' }
-      });
-    }
-
     // Upload (PUT)
     if (request.method === 'PUT') {
+      const secret = request.headers.get('X-Upload-Secret');
+      if (secret !== env.UPLOAD_SECRET) {
+        return new Response('Unauthorized', { 
+          status: 401,
+          headers: { 'Access-Control-Allow-Origin': '*' }
+        });
+      }
+
       if (!path) {
         return new Response('Path required', { 
           status: 400,

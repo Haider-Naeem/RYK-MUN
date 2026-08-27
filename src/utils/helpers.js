@@ -18,48 +18,73 @@ export async function imageUrlToBase64(url) {
   if (!url || typeof url !== 'string') return null;
   if (url.startsWith('data:image/')) return url;
 
+  const workerUrl = import.meta.env.VITE_R2_WORKER_URL;
+  const uploadSecret = import.meta.env.VITE_R2_UPLOAD_SECRET;
+
   // 1. If it's an R2 direct URL, rewrite to worker proxy URL so CORS headers are returned
   let targetUrl = url;
-  const workerUrl = import.meta.env.VITE_R2_WORKER_URL;
-  if (workerUrl && (url.includes('.r2.dev') || url.includes('r2.cloudflarestorage.com'))) {
+  let isR2 = false;
+  if (workerUrl && (url.includes('.r2.dev') || url.includes('r2.cloudflarestorage.com') || url.includes('workers.dev'))) {
     try {
       const parsed = new URL(url);
       const path = parsed.pathname.replace(/^\/+/, '');
       targetUrl = `${workerUrl.replace(/\/+$/, '')}/${path}`;
+      isR2 = true;
     } catch (e) {}
   }
 
-  // 2. Try fetch -> blob -> FileReader data URL
-  try {
-    const res = await fetch(targetUrl, { mode: 'cors' });
-    if (res.ok) {
-      const blob = await res.blob();
-      return await new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onloadend = () => resolve(reader.result);
-        reader.onerror = reject;
-        reader.readAsDataURL(blob);
-      });
-    }
-  } catch (err) {}
-
-  // 3. Try with original URL if targetUrl was rewritten
-  if (targetUrl !== url) {
+  // 2. Try fetch through worker with auth header
+  if (isR2) {
     try {
-      const res = await fetch(url, { mode: 'cors' });
+      const headers = {};
+      if (uploadSecret) headers['X-Upload-Secret'] = uploadSecret;
+      const res = await fetch(targetUrl, { mode: 'cors', headers });
       if (res.ok) {
         const blob = await res.blob();
-        return await new Promise((resolve, reject) => {
+        const b64 = await new Promise((resolve, reject) => {
           const reader = new FileReader();
           reader.onloadend = () => resolve(reader.result);
           reader.onerror = reject;
           reader.readAsDataURL(blob);
         });
+        if (b64) return b64;
       }
     } catch (err) {}
   }
 
-  // 4. Try Image + Canvas with crossOrigin
+  // 3. Try standard fetch for any URL
+  try {
+    const res = await fetch(targetUrl, { mode: 'cors' });
+    if (res.ok) {
+      const blob = await res.blob();
+      const b64 = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+      if (b64) return b64;
+    }
+  } catch (err) {}
+
+  // 4. Try with original URL if targetUrl was rewritten
+  if (targetUrl !== url) {
+    try {
+      const res = await fetch(url, { mode: 'cors' });
+      if (res.ok) {
+        const blob = await res.blob();
+        const b64 = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result);
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
+        });
+        if (b64) return b64;
+      }
+    } catch (err) {}
+  }
+
+  // 5. Try Image + Canvas with crossOrigin
   try {
     const b64 = await new Promise((resolve, reject) => {
       const img = new Image();
