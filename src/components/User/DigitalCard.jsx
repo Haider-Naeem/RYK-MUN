@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { supabase } from '../../supabase/config';
 import { useAuth } from '../../hooks/useAuth';
@@ -22,7 +22,6 @@ const BORDER_GOLD_STRONG = 'rgba(183,145,67,0.3)';
 
 // FIXED: Card validity check using event dates
 function isCardValid(reg) {
-  // Use the event dates that we fetched and merged
   const endDate = reg.eventEndDate || reg.eventStartDate;
 
   console.log('Card validation for', reg.id, ':', {
@@ -33,7 +32,7 @@ function isCardValid(reg) {
 
   if (!endDate) {
     console.warn('No end date found for card:', reg.id);
-    return true; // If no dates available, assume valid
+    return true;
   }
 
   const now = new Date();
@@ -50,10 +49,8 @@ function isCardValid(reg) {
 
 function formatDateStr(dateStr) {
   if (!dateStr) return '';
-  // Handle various date formats
   const date = new Date(dateStr);
   if (isNaN(date.getTime())) {
-    // Try manual parsing
     const sep = dateStr.includes('/') ? '/' : '-';
     const parts = dateStr.split(sep);
     if (parts.length === 3) {
@@ -90,8 +87,13 @@ export default function DigitalCard() {
   const [b64Image, setB64Image] = useState(null);
   const [bgB64, setBgB64] = useState(null);
   const [isExporting, setIsExporting] = useState(false);
+
+  // NEW: stable QR image data URL (critical for iOS)
+  const [qrImageDataUrl, setQrImageDataUrl] = useState(null);
+
   const cardRef = useRef();
   const qrCanvasRef = useRef();
+  const qrCaptureAttempts = useRef(0);
 
   // Convert profile image URL to base64
   useEffect(() => {
@@ -135,7 +137,6 @@ export default function DigitalCard() {
     if (!currentUser) return;
     async function load() {
       try {
-        // Step 1: Fetch approved registrations
         const { data: regsData, error: rErr } = await supabase
           .from('registrations')
           .select('*')
@@ -153,7 +154,6 @@ export default function DigitalCard() {
 
         if (prErr) throw prErr;
 
-        // Map pass registrations to have matching fields
         const formattedPassRegs = (passRegsData || []).map(pr => ({
           ...pr,
           type: 'pass',
@@ -162,10 +162,8 @@ export default function DigitalCard() {
 
         const regs = [...(regsData || []), ...formattedPassRegs];
 
-        // Step 2: Get unique event IDs from registrations
         const eventIds = [...new Set(regs.map(r => r.event_id).filter(Boolean))];
 
-        // Step 3: Fetch events to get dates
         let eventMap = {};
         if (eventIds.length > 0) {
           const { data: events, error: evtErr } = await supabase
@@ -175,7 +173,6 @@ export default function DigitalCard() {
 
           if (evtErr) throw evtErr;
 
-          // Create event lookup map
           events.forEach(evt => {
             eventMap[evt.id] = {
               name: evt.name,
@@ -185,21 +182,18 @@ export default function DigitalCard() {
           });
         }
 
-        // Step 4: Merge event dates into registrations
         const normalized = regs.map(reg => {
           const camelReg = keysToCamel(reg);
           const eventData = eventMap[reg.event_id] || {};
 
           return {
             ...camelReg,
-            // Use event dates from fetched events (override if registration has its own)
             eventStartDate: camelReg.eventStartDate || eventData.startDate || null,
             eventEndDate: camelReg.eventEndDate || eventData.endDate || null,
             eventName: camelReg.eventName || eventData.name || 'Unknown Event',
           };
         });
 
-        // Step 4.5: Fetch event passes for pass names
         const passIds = [...new Set(formattedPassRegs.map(pr => pr.pass_id).filter(Boolean))];
         let passMap = {};
         if (passIds.length > 0) {
@@ -217,13 +211,11 @@ export default function DigitalCard() {
           }
         });
 
-        // Step 5: Fetch committees
         const comms = await cachedCollection('committees');
 
         setCards(normalized);
         setCommittees(comms);
 
-        // Auto-select card
         const passedId = location.state?.regId || location.state?.passRegId;
         const auto = passedId
           ? normalized.find(r => r.id === passedId)
@@ -245,6 +237,9 @@ export default function DigitalCard() {
   async function doSelectCard(reg, comms = committees) {
     setSelectedCard(reg);
     setQrData(undefined);
+    setQrImageDataUrl(null);          // reset QR image
+    qrCaptureAttempts.current = 0;
+
     try {
       let query = supabase.from('qr_codes').select('*');
       if (reg.isPass) {
@@ -276,56 +271,89 @@ export default function DigitalCard() {
   const profileImage = selectedCard?.imageUrl || null;
   const padClass = adminPadClass(userProfile);
 
-  // ── Reliable QR data URL from the LIVE canvas (critical for iOS) ──
-  function getQrDataUrl() {
-    // Prefer the live canvas via ref
+  // ────────────────────────────────────────────────
+  // ROBUST QR → data URL capture (works on iOS)
+  // ────────────────────────────────────────────────
+  const captureQrToDataUrl = useCallback(() => {
     const canvas = qrCanvasRef.current;
-    if (canvas && typeof canvas.toDataURL === 'function') {
-      try {
-        return canvas.toDataURL('image/png');
-      } catch (e) {
-        console.warn('QR toDataURL via ref failed', e);
-      }
-    }
+    if (!canvas) return false;
 
-    // Fallback: look inside the card
-    const liveCanvas = cardRef.current?.querySelector('canvas');
-    if (liveCanvas) {
-      try {
-        return liveCanvas.toDataURL('image/png');
-      } catch (e) {
-        console.warn('Fallback QR toDataURL failed', e);
+    try {
+      // Force a paint on some iOS versions
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        // no-op read to ensure rasterisation
+        ctx.getImageData(0, 0, 1, 1);
       }
-    }
-    return null;
-  }
 
-  // ── Shared capture logic (works on iOS Safari / Chrome + Android) ──
+      const dataUrl = canvas.toDataURL('image/png');
+      if (dataUrl && dataUrl.length > 200 && dataUrl.startsWith('data:image/png')) {
+        setQrImageDataUrl(dataUrl);
+        return true;
+      }
+    } catch (err) {
+      console.warn('QR capture attempt failed', err);
+    }
+    return false;
+  }, []);
+
+  // Keep trying until we successfully get a data URL (iOS needs retries)
+  useEffect(() => {
+    if (!qrData || !qrValue) return;
+
+    setQrImageDataUrl(null);
+    qrCaptureAttempts.current = 0;
+
+    const attempt = () => {
+      qrCaptureAttempts.current += 1;
+      const success = captureQrToDataUrl();
+
+      if (!success && qrCaptureAttempts.current < 12) {
+        // progressive delays – iOS is slow
+        const delay = qrCaptureAttempts.current < 4 ? 120 : 250;
+        setTimeout(attempt, delay);
+      }
+    };
+
+    // first attempt after a short paint delay
+    const t = setTimeout(attempt, 80);
+    return () => clearTimeout(t);
+  }, [qrData, qrValue, captureQrToDataUrl]);
+
+  // ────────────────────────────────────────────────
+  // Capture card for Image / PDF
+  // ────────────────────────────────────────────────
   async function captureCard() {
     if (!cardRef.current || isExporting) return null;
     setIsExporting(true);
 
     try {
       await document.fonts.ready;
-      // Give iOS extra time to finish painting the QR canvas
-      await new Promise(resolve => setTimeout(resolve, 800));
+      // Extra time for iOS to settle
+      await new Promise(r => setTimeout(r, 600));
 
-      // CRITICAL: capture from the LIVE canvas BEFORE html2canvas
-      const qrDataUrl = getQrDataUrl();
+      // One last attempt to have a good QR image
+      if (!qrImageDataUrl) {
+        captureQrToDataUrl();
+        await new Promise(r => setTimeout(r, 200));
+      }
 
       const canvas = await html2canvas(cardRef.current, {
-        scale: 3,                    // 4 is too heavy for many iOS devices
+        scale: 3,
         backgroundColor: '#3A0810',
         useCORS: true,
-        allowTaint: false,           // safer on iOS once QR is an <img>
+        allowTaint: false,
         logging: false,
+        imageTimeout: 15000,
         onclone: (clonedDoc, element) => {
-          // Replace every canvas with an <img> that uses the pre-captured data URL
+          // Safety net: if any canvas still exists, replace with the data URL image
           const canvases = element.querySelectorAll('canvas');
           canvases.forEach(c => {
-            if (!qrDataUrl) return;
+            if (!qrImageDataUrl) return;
             const img = clonedDoc.createElement('img');
-            img.src = qrDataUrl;
+            img.src = qrImageDataUrl;
+            img.width = 140;
+            img.height = 140;
             img.style.width = '140px';
             img.style.height = '140px';
             img.style.display = 'inline-block';
@@ -333,19 +361,13 @@ export default function DigitalCard() {
             c.parentNode?.replaceChild(img, c);
           });
 
-          // Fix any oklch colors (Safari / modern browsers)
-          const allElements = element.getElementsByTagName('*');
-          for (let el of allElements) {
-            const style = el.style;
-            if (style.color && style.color.includes('oklch')) {
-              style.color = '#FFFFFF';
-            }
-            if (style.backgroundColor && style.backgroundColor.includes('oklch')) {
-              style.backgroundColor = '#3A0810';
-            }
-            if (style.borderColor && style.borderColor.includes('oklch')) {
-              style.borderColor = '#B79143';
-            }
+          // Fix oklch colours
+          const all = element.getElementsByTagName('*');
+          for (let el of all) {
+            const s = el.style;
+            if (s.color?.includes('oklch')) s.color = '#FFFFFF';
+            if (s.backgroundColor?.includes('oklch')) s.backgroundColor = '#3A0810';
+            if (s.borderColor?.includes('oklch')) s.borderColor = '#B79143';
           }
         },
       });
@@ -381,7 +403,9 @@ export default function DigitalCard() {
     toast.success('Card saved as PDF!');
   }
 
-  // Card Component
+  // ────────────────────────────────────────────────
+  // Card Component – prefers <img> for QR
+  // ────────────────────────────────────────────────
   const CardComponent = () => (
     <div
       ref={cardRef}
@@ -637,6 +661,7 @@ export default function DigitalCard() {
               </span>
             </div>
           )}
+
           {selectedCard?.cnic && (
             <div
               style={{
@@ -654,6 +679,7 @@ export default function DigitalCard() {
                 fontWeight: 'bold',
                 textTransform: 'uppercase',
                 letterSpacing: '0.05em',
+                color: valid ? '#B79143' : '#525252',
               }}>
                 CNIC
               </span>
@@ -671,7 +697,7 @@ export default function DigitalCard() {
           )}
         </div>
 
-        {/* QR Code */}
+        {/* QR Code – prefer stable <img>, keep hidden canvas for generation */}
         <div style={{ marginBottom: '10px', textAlign: 'center' }}>
           <div style={{
             display: 'inline-block',
@@ -679,17 +705,61 @@ export default function DigitalCard() {
             backgroundColor: '#FFFFFF',
             padding: '10px',
             boxShadow: '0 10px 15px rgba(0,0,0,0.3)',
+            position: 'relative',
           }}>
-            <QRCodeCanvas
-              ref={qrCanvasRef}
-              value={qrValue}
-              size={140}
-              bgColor="#ffffff"
-              fgColor={valid ? '#3A0810' : '#666666'}
-              level="H"
-              includeMargin={false}
-            />
+            {/* Visible QR – always an <img> once ready (best for html2canvas + iOS) */}
+            {qrImageDataUrl ? (
+              <img
+                src={qrImageDataUrl}
+                alt="QR Code"
+                width={140}
+                height={140}
+                style={{
+                  width: '140px',
+                  height: '140px',
+                  display: 'block',
+                  objectFit: 'contain',
+                }}
+              />
+            ) : (
+              // Fallback while generating
+              <div style={{
+                width: 140,
+                height: 140,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                background: '#f5f5f5',
+                color: '#999',
+                fontSize: 11,
+              }}>
+                Generating…
+              </div>
+            )}
+
+            {/* Hidden live canvas used only to generate the data URL */}
+            <div style={{
+              position: 'absolute',
+              left: -9999,
+              top: -9999,
+              width: 140,
+              height: 140,
+              overflow: 'hidden',
+              opacity: 0,
+              pointerEvents: 'none',
+            }}>
+              <QRCodeCanvas
+                ref={qrCanvasRef}
+                value={qrValue}
+                size={140}
+                bgColor="#ffffff"
+                fgColor={valid ? '#3A0810' : '#666666'}
+                level="H"
+                includeMargin={false}
+              />
+            </div>
           </div>
+
           <div style={{
             marginTop: '6px',
             fontFamily: 'Montserrat, sans-serif',
@@ -845,7 +915,7 @@ export default function DigitalCard() {
                             type="button"
                             className="rounded-xl bg-gradient-to-r from-[#8E6B2F] via-[#B79143] to-[#D7B46A] px-5 py-2.5 text-sm font-semibold text-[#2A0B12] transition-all duration-300 hover:scale-[1.02] hover:shadow-lg hover:shadow-[#B79143]/20"
                             onClick={saveAsImage}
-                            disabled={isExporting}
+                            disabled={isExporting || !qrImageDataUrl}
                           >
                             {isExporting ? '⏳ Saving...' : '📥 Save as Image'}
                           </button>
@@ -854,11 +924,14 @@ export default function DigitalCard() {
                             className="rounded-xl border px-5 py-2.5 text-sm font-semibold text-[#B79143] transition-all duration-300 hover:bg-[#B79143]/10"
                             style={{ borderColor: BORDER_GOLD_STRONG }}
                             onClick={saveAsPDF}
-                            disabled={isExporting}
+                            disabled={isExporting || !qrImageDataUrl}
                           >
                             {isExporting ? '⏳ Saving...' : '📄 Save as PDF'}
                           </button>
                         </div>
+                        {!qrImageDataUrl && (
+                          <p className="text-xs text-[#b89b84]">Preparing QR code…</p>
+                        )}
                       </>
                     )}
                     {qrData !== undefined && (
